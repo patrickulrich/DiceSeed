@@ -154,7 +154,10 @@ is the fix.)
    options don't matter either way.
 
 The same thing with `arduino-cli`, run from inside the `DiceSeed/` sketch
-folder (`cd DiceSeed` from the repo root):
+folder (`cd DiceSeed` from the repo root). Prefer a build that matches the
+published release binaries byte-for-byte? `tools/build-firmware.sh` builds
+both variants reproducibly in Docker from a pinned toolchain — see
+[Reproducible builds](docs/reproducible-build.md) (v2.4.7).
 
 ```sh
 # one-time setup
@@ -390,13 +393,28 @@ or `tests/vectors.h`.
 ### CI
 
 `.github/workflows/build.yml` (v2.4.6) runs that same test suite and
-compiles **both firmware variants** on every push and PR, from a pinned
-toolchain (`arduino-cli` 1.5.1, `esp32:esp32` 3.3.11, `TFT_eSPI` 2.5.43 —
-the same versions the Build & flash section documents as tested, so a
-green checkmark certifies a build of what's described, not of whatever
-the package index shipped that morning). Each variant is uploaded as a
-sha-named artifact from every run. No flashing, no hardware in CI —
-anything touching a real board stays manual, as always.
+builds **both firmware variants** on every push and PR — via
+`tools/build-firmware.sh` (v2.4.7), the same pinned, Docker-based,
+**reproducible** path a local build uses (`arduino-cli` 1.5.1,
+`esp32:esp32` 3.3.11, `TFT_eSPI` 2.5.43 — the versions above, documented
+as tested, so a green checkmark certifies a build of what's described,
+not of whatever the package index shipped that morning). Every run
+uploads both `.bin`s + their `SHA-256SUMS` as an artifact. No flashing,
+no hardware in CI — anything touching a real board stays manual, as
+always. See [Reproducible builds](docs/reproducible-build.md) for
+verifying a released binary against the source.
+
+### Releases
+
+Releases are **automated** (v2.4.7): merging to `main` a commit that
+bumps `FIRMWARE_VERSION_BASE` past the latest `v*` tag — with its
+matching `docs/releases/vX.Y.Z.md` present — makes CI tag the merged
+commit, build both variants reproducibly, create the GitHub Release with
+the notes file as its body, and attach both `.bin`s + `SHA-256SUMS`. The
+whole human process is: *write the notes, bump the version, merge*. A
+bump without its notes file fails the job loudly — no notes, no release.
+A `workflow_dispatch` dry run rehearses the detection on any branch with
+no side effects.
 
 ## Cross-checking your output
 

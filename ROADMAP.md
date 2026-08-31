@@ -39,7 +39,17 @@ per-build audit surface — though both paths already live in the repo and are
 already tested, so "review both" is arguably already the reality; the flag
 only ever decided which one shipped.
 
-## 2. Reproducible builds + published binary hashes
+## 2. Reproducible builds + published binary hashes — DONE (2026-08-31)
+
+Shipped in v2.4.7 as `tools/build-firmware.sh` + `docs/reproducible-build.md`:
+both variants built in a throwaway Debian container from a pinned toolchain
+(arduino-cli 1.5.1 with its tarball SHA-256 verified in-script, esp32 core
+3.3.11, TFT_eSPI 2.5.43 — the same versions the README documents as tested),
+with CI running the identical script so CI artifacts are byte-identical to
+local builds. Releases are automated end-to-end: a version-bump merge to
+`main` (gated on its `docs/releases/vX.Y.Z.md` notes file) is tagged, built,
+and published — both `.bin`s + `SHA-256SUMS` — by CI alone. The original
+motivation and plan are kept below.
 
 Someone who can't or won't compile from source has no way today to confirm
 that a flashed `.bin` matches the published source. The established

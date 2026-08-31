@@ -307,8 +307,8 @@
 //   2.4.3 (2026-08-31) - Button-edge markers on non-touch boards (issue
 //                         #12): a small "1" and "2" with a short edge
 //                         tick at the far right of the screen, at the
-//                         vertical positions of the physical GPIO0/BTN1
-//                         (top-right) and GPIO14/BTN2 (bottom-right)
+//                         vertical positions of the physical GPIO14/BTN2
+//                         (top-right) and GPIO0/BTN1 (bottom-right)
 //                         buttons on the T-Display S3's board edge in
 //                         this rotation. The bottom-left hint lines say
 //                         what each button does; these say which physical
@@ -407,8 +407,50 @@
 //                         to Releases is deliberately NOT here (that
 //                         ships with the reproducible-build work, where
 //                         hashes can mean something). No firmware change.
+//   2.4.7 (2026-08-31) - Reproducible builds + AUTOMATED releases
+//                         (ROADMAP item 2, DONE):
+//                         tools/build-firmware.sh builds BOTH variants
+//                         in a throwaway Debian container from a fully
+//                         pinned toolchain -- arduino-cli 1.5.1 (tarball
+//                         SHA-256 verified in-script), esp32:esp32
+//                         3.3.11, TFT_eSPI 2.5.43 -- from a scratch
+//                         copy of the sketch at a fixed path, with fixed
+//                         --build-path + --clean, and SOURCE_DATE_EPOCH
+//                         pinned to the commit timestamp (the ESP-IDF
+//                         app descriptor otherwise embeds __TIME__,
+//                         which made two builds of one commit differ).
+//                         Result, proven across two cold CI runs:
+//                         byte-identical binaries for the same commit.
+//                         CI's build job runs this same script (single
+//                         source of truth; CI artifacts are
+//                         byte-identical to local builds, which is what
+//                         makes published hashes meaningful). Releases
+//                         are now fully automated, not hand-cut: a push
+//                         to main that bumps FIRMWARE_VERSION_BASE past
+//                         the latest v* tag, with its matching
+//                         docs/releases/vX.Y.Z.md present (a bump
+//                         without notes FAILS the job -- no notes, no
+//                         release), gets tagged, built reproducibly,
+//                         and published -- release body from the notes
+//                         file, assets = both .bins + SHA-256SUMS.
+//                         Maintainer's whole process: write notes, bump
+//                         version, merge. A workflow_dispatch dry run
+//                         rehearses detection with no side effects.
+//                         PGP-signing releases remains ROADMAP item 3.
+//                         docs/reproducible-build.md documents the pins,
+//                         usage, and how to verify a released binary.
+//                         No firmware-logic change; ROADMAP item 2
+//                         marked DONE. Also finalized in this version:
+//                         the issue #12 button markers, hardware-
+//                         verified (a Touch board running a forced-
+//                         non-touch test build -- same chassis, same
+//                         button edge): GPIO14/BTN2 is the top-right
+//                         button, GPIO0/BTN1 the bottom-right; the v2.4.3
+//                         y-offset guesses were right, the digits were
+//                         swapped, and only the two BTNMARK constants
+//                         exchanged values.
 
-#define FIRMWARE_VERSION_BASE "2.4.6"
+#define FIRMWARE_VERSION_BASE "2.4.7"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -627,18 +669,17 @@ unsigned long rollBtn2DownAt = 0;
 // guess, press, and infer. These markers close that gap: a small "1" and
 // "2" plus an edge tick at the far right of the screen, at the vertical
 // positions of the physical buttons in this rotation (rotation 1,
-// landscape, USB-C left): GPIO0/BTN1 near the top-right corner, GPIO14/
-// BTN2 near the bottom-right.
+// landscape, USB-C left): GPIO14/BTN2 near the top-right corner, GPIO0/
+// BTN1 near the bottom-right.
 //
-// POSITION CAVEAT (v2.4.3): the y offsets below are best-guess values
-// derived from the board layout -- compile-verified only, exactly like the
-// v2.3.1 non-touch digit rendering (no non-touch board on hand; the touch
-// board shares the chassis, but the marker path is display-disabled there
-// by construction). If they miss the buttons on real hardware, these two
-// constants are the only tuning needed.
+// POSITION CAVEAT RESOLVED (v2.4.7): the original v2.4.3 offsets guessed
+// the GPIO0/GPIO14 order inverted. Verified on hardware (a Touch board
+// running a forced-non-touch test build -- same chassis, same button
+// edge): the y positions were right, the digits were swapped, so only
+// the two constants below exchanged values.
 static const int BTNMARK_X    = 310;   // digit column (6px wide at size 1)
-static const int BTNMARK1_Y   = 10;    // GPIO0  / BTN1: top-right of the edge
-static const int BTNMARK2_Y   = 152;   // GPIO14 / BTN2: bottom-right
+static const int BTNMARK1_Y   = 152;   // GPIO0  / BTN1: bottom-right of the edge
+static const int BTNMARK2_Y   = 10;    // GPIO14 / BTN2: top-right
 
 // No-op on touch boards (their flows are tap-driven and the grid needs
 // the full width, per issue #12) and on the momentary wipe screen (it is

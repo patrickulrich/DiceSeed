@@ -1,25 +1,46 @@
-# CI (issue #13): run the core test suite and compile BOTH firmware
-# variants (compat / classic) from a pinned toolchain, on every push and
-# PR. Compilation is the whole gate -- no flash, no hardware in CI;
-# uploads and anything touching a real board stay manual, as always.
+# CI (issue #13 + ROADMAP item 2): run the core test suite and build BOTH
+# firmware variants (compat / classic) via tools/build-firmware.sh -- the
+# SAME pinned, Docker-based, reproducible path a local build uses -- on
+# every push and PR. CI artifacts are therefore byte-identical to local
+# builds, which is what makes published hashes meaningful. Compilation is
+# the whole gate -- no flash, no hardware in CI; uploads and anything
+# touching a real board stay manual, as always.
 #
-# TOOLCHAIN PINS are deliberate, not convenience: this firmware's value
-# proposition is "same rolls -> same mnemonic, verifiably." An unpinned CI
-# that silently picks up esp32 core 3.4.x or TFT_eSPI 2.6.x tomorrow
+# RELEASES ARE AUTOMATED (v2.4.7): when a push to main bumps
+# FIRMWARE_VERSION_BASE beyond the latest v* tag AND the matching
+# docs/releases/vX.Y.Z.md exists, the release job tags the merged commit,
+# builds both variants reproducibly, creates the GitHub Release with that
+# notes file as its body, and attaches the .bin files + SHA-256SUMS. The
+# maintainer's whole release process is: write the notes, bump the
+# version, merge to main. A bump WITHOUT its notes file fails the job
+# loudly -- no notes, no release. Re-runs are idempotent (--clobber).
+# A workflow_dispatch "dry run" rehearses the detection on any branch
+# with zero side effects.
+#
+# TOOLCHAIN PINS live in tools/build-firmware.sh (single source of
+# truth). They are deliberate, not convenience: this firmware's value
+# proposition is "same rolls -> same mnemonic, verifiably." An unpinned
+# CI that silently picks up esp32 core 3.4.x or TFT_eSPI 2.6.x tomorrow
 # would build a binary nobody has ever tested on hardware, and a green
-# checkmark would certify exactly nothing. These pins are also the
-# starting point for ROADMAP item 2 (reproducible builds).
+# checkmark would certify exactly nothing.
 #
-# v2.4.1 LAYOUT: the sketch lives in the DiceSeed/ subdirectory, so the
-# compile step MUST run with working-directory: DiceSeed and its
-# --output-dir MUST sit OUTSIDE the sketch folder (arduino-cli refuses an
-# output dir inside the sketch). Compiling from the repo root would
-# reproduce the exact stranded-header failure ("build_mode.h: No such
-# file or directory") that v2.4.1's move was cut to fix -- do not
-# "simplify" this back to the root.
+# v2.4.1 LAYOUT: the sketch lives in the DiceSeed/ subdirectory; the
+# script compiles from DiceSeed/ with its build/output dirs outside the
+# sketch (arduino-cli refuses an output dir inside it). Compiling from
+# the repo root would reproduce the exact stranded-header failure
+# ("build_mode.h: No such file or directory") that v2.4.1's move was cut
+# to fix -- do not "simplify" this back to the root.
 name: build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Rehearse release detection (report only, no tag/release)"
+        type: boolean
+        default: true
 
 jobs:
   test:
@@ -36,58 +57,133 @@ jobs:
         run: tests/run_tests.sh
 
   build:
-    name: Build ${{ matrix.variant }}
+    name: Firmware (both variants, reproducible Docker)
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Compat (default): build_mode.h guards with #ifndef and
-          # defaults DICESEED_COMPAT_BUILD to 1, so an empty extra_flags
-          # string IS the compat build -- passing nothing would work too;
-          # the explicit empty string keeps both legs of the matrix
-          # identical in shape.
-          - variant: compat
-            extra_flags: ""
-          - variant: classic
-            extra_flags: "-DDICESEED_COMPAT_BUILD=0"
     steps:
       - uses: actions/checkout@v4
 
-      # arduino-cli pinned to 1.5.1 (the version the devbox runs, so CI
-      # and local builds agree). install.sh takes the version as a
-      # positional argument after `sh -s`.
-      - name: Install arduino-cli 1.5.1
+      # Label = tag name on tag builds (the release artifacts), short sha
+      # otherwise (branch names can contain slashes; filenames cannot).
+      - name: Build compat + classic via tools/build-firmware.sh
         run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
-            | BINDIR=/usr/local/bin sh -s 1.5.1
-          arduino-cli version
-
-      - name: Install platform + library (pinned)
-        run: |
-          arduino-cli config init --overwrite
-          arduino-cli config add board_manager.additional_urls \
-            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32@3.3.11
-          arduino-cli lib install TFT_eSPI@2.5.43
-
-      # See the v2.4.1 LAYOUT note at the top: from DiceSeed/, outputs to
-      # ../build/. tft_setup.h rides along automatically via TFT_eSPI's
-      # __has_include auto-detection -- no configuration needed for it.
-      - name: Compile ${{ matrix.variant }}
-        working-directory: DiceSeed
-        run: |
-          arduino-cli compile \
-            --fqbn esp32:esp32:lilygo_t_display_s3 \
-            --build-property "build.extra_flags=${{ matrix.extra_flags }}" \
-            --output-dir ../build/${{ matrix.variant }} \
-            .
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            LABEL="$GITHUB_REF_NAME"
+          else
+            LABEL="${GITHUB_SHA::12}"
+          fi
+          tools/build-firmware.sh build "$LABEL"
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: diceseed-${{ github.sha }}-${{ matrix.variant }}
-          path: build/${{ matrix.variant }}/*.bin
+          name: diceseed-${{ github.sha }}-firmware
+          path: |
+            build/*.bin
+            build/SHA-256SUMS
           if-no-files-found: error
+
+  release:
+    name: Auto-release (main, on version bump)
+    # Real releases fire ONLY on pushes to main; the dispatch path is the
+    # dry-run rehearsal. Nothing here runs for branch pushes or PRs --
+    # those get the test/build gate above and stop there.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # fetch-depth: 0 -- the "latest v* tag" comparison below needs the
+      # tags, and checkout's default (fetch-depth: 1) fetches NONE of
+      # them. Without this the job would see an empty tag list on every
+      # run and try to re-release whatever version it sees.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect version bump + release note
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          VER="$(sed -n 's/^#define FIRMWARE_VERSION_BASE "\(.*\)"$/\1/p' DiceSeed/DiceSeed.ino)"
+          if [ -z "$VER" ]; then
+            echo "::error::could not parse FIRMWARE_VERSION_BASE from DiceSeed/DiceSeed.ino"
+            exit 1
+          fi
+          TAG="v$VER"
+          LATEST="$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)"
+          echo "firmware version: $VER (latest tagged: ${LATEST:-none})"
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            DRY=1
+          else
+            DRY=0
+          fi
+
+          # Idempotence: same version as the latest tag means this merge
+          # was already released -- nothing to do.
+          if [ -n "$LATEST" ] && [ "$VER" = "$LATEST" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "v$VER already tagged and released; skipping."
+            exit 0
+          fi
+          # Older-than-latest is a rolled-back version -- refuse rather
+          # than guess.
+          if [ -n "$LATEST" ] && [ "$VER" != "$(printf '%s\n' "$VER" "$LATEST" | sort -V | tail -1)" ]; then
+            echo "::error::firmware version $VER is older than the latest tag v$LATEST; refusing."
+            exit 1
+          fi
+
+          if [ ! -f "docs/releases/$TAG.md" ]; then
+            # The notes file is the release gate: a bump without notes
+            # fails loudly instead of shipping a notes-less release.
+            echo "::error::$TAG has no docs/releases/$TAG.md -- write the release notes, then re-run. (No notes, no release.)"
+            exit 1
+          fi
+
+          echo "skip=0" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+
+          if [ "$DRY" = "1" ]; then
+            echo "DRY RUN: would tag $TAG on $GITHUB_SHA, build both variants,"
+            echo "create the release from docs/releases/$TAG.md, and attach"
+            echo "the .bin files + SHA-256SUMS. No side effects."
+          fi
+
+      - name: Tag the release commit
+        if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.detect.outputs.tag }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+
+      - name: Build both variants (reproducible, same as everything else)
+        if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
+        run: tools/build-firmware.sh build "${{ steps.detect.outputs.tag }}"
+
+      # Creates the release with the notes file as its body, or -- if a
+      # re-run finds it already exists -- just refreshes the assets.
+      - name: Publish the release
+        if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.detect.outputs.tag }}
+        run: |
+          set -eu
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" build/*.bin build/SHA-256SUMS --clobber -R "$GITHUB_REPOSITORY"
+            echo "Release $TAG already existed; assets refreshed."
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file "docs/releases/$TAG.md" \
+              build/*.bin build/SHA-256SUMS \
+              -R "$GITHUB_REPOSITORY"
+            echo "Released $TAG with binaries + SHA-256SUMS."
+          fi
