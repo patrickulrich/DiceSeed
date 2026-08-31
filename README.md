@@ -387,6 +387,17 @@ in this repo.
 Run `tests/run_tests.sh` after touching `diceseed_core.h`, `bip39_wordlist.h`,
 or `tests/vectors.h`.
 
+### CI
+
+`.github/workflows/build.yml` (v2.4.6) runs that same test suite and
+compiles **both firmware variants** on every push and PR, from a pinned
+toolchain (`arduino-cli` 1.5.1, `esp32:esp32` 3.3.11, `TFT_eSPI` 2.5.43 —
+the same versions the Build & flash section documents as tested, so a
+green checkmark certifies a build of what's described, not of whatever
+the package index shipped that morning). Each variant is uploaded as a
+sha-named artifact from every run. No flashing, no hardware in CI —
+anything touching a real board stays manual, as always.
+
 ## Cross-checking your output
 
 **Don't type your raw dice rolls into iancoleman.io's "Dice" mode expecting

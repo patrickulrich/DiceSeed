@@ -1,0 +1,93 @@
+# CI (issue #13): run the core test suite and compile BOTH firmware
+# variants (compat / classic) from a pinned toolchain, on every push and
+# PR. Compilation is the whole gate -- no flash, no hardware in CI;
+# uploads and anything touching a real board stay manual, as always.
+#
+# TOOLCHAIN PINS are deliberate, not convenience: this firmware's value
+# proposition is "same rolls -> same mnemonic, verifiably." An unpinned CI
+# that silently picks up esp32 core 3.4.x or TFT_eSPI 2.6.x tomorrow
+# would build a binary nobody has ever tested on hardware, and a green
+# checkmark would certify exactly nothing. These pins are also the
+# starting point for ROADMAP item 2 (reproducible builds).
+#
+# v2.4.1 LAYOUT: the sketch lives in the DiceSeed/ subdirectory, so the
+# compile step MUST run with working-directory: DiceSeed and its
+# --output-dir MUST sit OUTSIDE the sketch folder (arduino-cli refuses an
+# output dir inside the sketch). Compiling from the repo root would
+# reproduce the exact stranded-header failure ("build_mode.h: No such
+# file or directory") that v2.4.1's move was cut to fix -- do not
+# "simplify" this back to the root.
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Core tests (BIP39 vectors + dice oracle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Self-contained by design: pulls a throwaway Debian container,
+      # installs g++ + libmbedtls, builds tests/test_core.cpp, runs it.
+      # ubuntu-latest runners ship Docker, so this is a plain local-style
+      # run -- the script's logic is reused, not duplicated.
+      - name: Run tests/run_tests.sh
+        run: tests/run_tests.sh
+
+  build:
+    name: Build ${{ matrix.variant }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Compat (default): build_mode.h guards with #ifndef and
+          # defaults DICESEED_COMPAT_BUILD to 1, so an empty extra_flags
+          # string IS the compat build -- passing nothing would work too;
+          # the explicit empty string keeps both legs of the matrix
+          # identical in shape.
+          - variant: compat
+            extra_flags: ""
+          - variant: classic
+            extra_flags: "-DDICESEED_COMPAT_BUILD=0"
+    steps:
+      - uses: actions/checkout@v4
+
+      # arduino-cli pinned to 1.5.1 (the version the devbox runs, so CI
+      # and local builds agree). install.sh takes the version as a
+      # positional argument after `sh -s`.
+      - name: Install arduino-cli 1.5.1
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+            | BINDIR=/usr/local/bin sh -s 1.5.1
+          arduino-cli version
+
+      - name: Install platform + library (pinned)
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.11
+          arduino-cli lib install TFT_eSPI@2.5.43
+
+      # See the v2.4.1 LAYOUT note at the top: from DiceSeed/, outputs to
+      # ../build/. tft_setup.h rides along automatically via TFT_eSPI's
+      # __has_include auto-detection -- no configuration needed for it.
+      - name: Compile ${{ matrix.variant }}
+        working-directory: DiceSeed
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:lilygo_t_display_s3 \
+            --build-property "build.extra_flags=${{ matrix.extra_flags }}" \
+            --output-dir ../build/${{ matrix.variant }} \
+            .
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: diceseed-${{ github.sha }}-${{ matrix.variant }}
+          path: build/${{ matrix.variant }}/*.bin
+          if-no-files-found: error

@@ -384,8 +384,31 @@
 //                         (v2.4.4) gained the showingEntropy clear --
 //                         it now has a caller inside the hex view.
 //                         Implements issue #15.
+//   2.4.6 (2026-08-31) - First CI (issue #13): .github/workflows/build.yml
+//                         runs the core test suite (tests/run_tests.sh,
+//                         unchanged and self-contained -- ubuntu-latest
+//                         runners ship Docker) and compiles BOTH firmware
+//                         variants on every push and PR, from a pinned
+//                         toolchain: arduino-cli 1.5.1 (the devbox's own
+//                         version, so CI and local builds agree),
+//                         esp32:esp32 3.3.11, TFT_eSPI 2.5.43 (the
+//                         versions README's Build & flash documents as
+//                         tested). The build job compiles from DiceSeed/
+//                         with its output dir OUTSIDE the sketch, per the
+//                         v2.4.1 layout -- compiling from the repo root
+//                         would reproduce the exact stranded-header
+//                         failure that layout fix was cut for (noted in
+//                         the YAML so a future cleanup cannot silently
+//                         regress it). Each variant uploads as a
+//                         sha-named artifact (diceseed-<sha>-compat /
+//                         -classic); on: push also fires for v* tags, so
+//                         future release tags get a verified build and
+//                         artifacts automatically -- attaching binaries
+//                         to Releases is deliberately NOT here (that
+//                         ships with the reproducible-build work, where
+//                         hashes can mean something). No firmware change.
 
-#define FIRMWARE_VERSION_BASE "2.4.5"
+#define FIRMWARE_VERSION_BASE "2.4.6"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
