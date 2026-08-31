@@ -357,8 +357,35 @@
 //                         stays [3][16], re-filled and scrubbed per step
 //                         -- full verification lengthens exposure TIME,
 //                         not surface. Implements issue #14.
+//   2.4.5 (2026-08-31) - The raw-entropy hex view is a FLOW STOP on
+//                         touch boards (issue #15, reshaped per the
+//                         maintainer's preference: a screen in the path
+//                         rather than a third nav cell). After the last
+//                         word page, > (or BTN2) now opens the hex
+//                         screen instead of the quiz; the hex screen
+//                         carries the same < > far-right nav stack, <
+//                         returning to the words and > starting the
+//                         backup quiz -- so seeing the entropy before
+//                         verification is guaranteed, not optional.
+//                         Issue #15's proposed third "#" cell below the
+//                         < > stack was rejected: three 48px cells do
+//                         not fit the 170px screen height, and a linear
+//                         flow reads cleaner than a squeezed control.
+//                         Consequence: on touch boards BTN1 no longer
+//                         toggles words<->hex (flow-only by design) --
+//                         it mirrors < instead (back a page / back to
+//                         words; no-op on page 1 and on the quiz's
+//                         right/wrong and summary screens), keeping the
+//                         buttons-mirror-cells rule. drawEntropy() split
+//                         into a shared body + touch variant (nav cells,
+//                         "> or BTN2: verify / < or BTN1: back" hints);
+//                         the non-touch layout, hints, and BTN1 toggle
+//                         are byte-for-byte unchanged. enterVerifyQuiz()
+//                         (v2.4.4) gained the showingEntropy clear --
+//                         it now has a caller inside the hex view.
+//                         Implements issue #15.
 
-#define FIRMWARE_VERSION_BASE "2.4.4"
+#define FIRMWARE_VERSION_BASE "2.4.5"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -981,13 +1008,22 @@ void drawResult() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 130);
-  if ((resultPage + 1) < totalPages) {
-    tft.println("BTN2 tap: next page");
+  if (dstouch::detected()) {
+    // Touch (v2.4.5): BTN1 mirrors < and BTN2 mirrors >, and > on the
+    // last page opens the hex screen (the flow stop before the quiz),
+    // not the quiz itself.
+    tft.println((resultPage + 1) < totalPages
+                    ? "BTN2 or >: next page"
+                    : "BTN2 or >: raw entropy (hex)");
+    tft.setCursor(10, 142);
+    tft.println("BTN1 or <: back a page");
   } else {
-    tft.println("BTN2 tap: verify backup");
+    tft.println((resultPage + 1) < totalPages
+                    ? "BTN2 tap: next page"
+                    : "BTN2 tap: verify backup");
+    tft.setCursor(10, 142);
+    tft.println("BTN1 tap: show raw entropy (hex)");
   }
-  tft.setCursor(10, 142);
-  tft.println("BTN1 tap: show raw entropy (hex)");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
   drawButtonMarkers();
@@ -1261,12 +1297,17 @@ void lockInVerifyChoice() {
   drawVerifyResult();
 }
 
-// Enters the backup-verification quiz from the last word page. Extracted
-// (v2.4.4) from its two call sites (touch `>` cell, BTN2) so the quiz
-// state -- including the v2.4.4 miss list -- is initialized in exactly
-// one place; a re-quiz after a finished pass starts with clean misses.
+// Enters the backup-verification quiz. Extracted (v2.4.4) from its two
+// call sites (touch `>` cell, BTN2) so the quiz state -- including the
+// v2.4.4 miss list -- is initialized in exactly one place; a re-quiz
+// after a finished pass starts with clean misses. v2.4.5 adds the third
+// call site (the hex screen's forward action, touch boards) and with it
+// the showingEntropy clear: on touch the quiz is now entered from the
+// entropy view, and "verifying implies !showingEntropy" must hold or the
+// tap handler would keep routing quiz taps to the hex screen's nav.
 void enterVerifyQuiz() {
   verifying = true;
+  showingEntropy = false;
   verifyStep = 0;
   verifyMissCount = 0;
   verifySummary = false;
@@ -1307,8 +1348,11 @@ void printHexByte(uint8_t b) {
   tft.print(hexDigits[b & 0xF]);
 }
 
-void drawEntropy() {
-  tft.fillScreen(TFT_BLACK);
+// Title + hex rows + the red sensitivity warning -- everything common to
+// the touch and non-touch variants of this view (v2.4.5 split).
+// printHexByte streams one nibble at a time, so no formatted copy of the
+// entropy ever exists while rendering.
+static void drawEntropyBody() {
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(2);
   tft.setCursor(10, 5);
@@ -1326,6 +1370,34 @@ void drawEntropy() {
   tft.setTextColor(TFT_RED, TFT_BLACK);
   tft.setCursor(10, 130);
   tft.println("As sensitive as the mnemonic itself.");
+}
+
+// Touch variant (v2.4.5): the raw-entropy view is a FLOW STOP between the
+// last word page and the backup quiz -- showing it is part of the path,
+// not an optional toggle, so the cross-check moment is guaranteed before
+// verification starts. The same far-right < > nav stack as the word
+// pages: < returns to the words (reversible, single-tap), > continues
+// into the quiz; BTN1 mirrors < and BTN2 mirrors >, per the
+// buttons-mirror-cells rule. Hex lines (16 chars x 12px) and the warning
+// text (36 chars x 6px = ~226px) never reach the x=264 nav column.
+static void drawEntropyTouch() {
+  tft.fillScreen(TFT_BLACK);
+  drawEntropyBody();
+  drawPageNavCells();
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 142);
+  tft.println("Paste into a BIP39 tool's Hex field.");
+  tft.setCursor(10, 155);
+  tft.println("> or BTN2: verify   < or BTN1: back");
+}
+
+void drawEntropy() {
+  // Non-touch: unchanged layout and hints -- BTN1 still toggles here
+  // from the word pages, as it has since v2.0.0.
+  if (dstouch::detected()) { drawEntropyTouch(); return; }
+
+  tft.fillScreen(TFT_BLACK);
+  drawEntropyBody();
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 142);
   tft.println("Paste into a BIP39 tool's Hex field.");
@@ -1679,7 +1751,23 @@ void loop() {
             verifyChoiceIdx = (verifyChoiceIdx + 1) % 3;
           }
           drawVerifyPicking();
+        } else if (dstouch::detected()) {
+          // Touch (v2.4.5): the hex view is flow-only -- no BTN1 toggle.
+          // BTN1 mirrors the < cell instead: back to the words from the
+          // hex screen, back a page on the word pages (no-op on page 1),
+          // and no-op on the quiz's right/wrong and summary screens,
+          // where advancing is BTN2/tap's single action.
+          if (showingEntropy) {
+            showingEntropy = false;
+            drawResult();
+          } else if (!verifying && resultPage > 0) {
+            resultPage--;
+            drawResult();
+          }
         } else {
+          // Non-touch: unchanged -- BTN1 opens/leaves the raw-entropy
+          // view (and cancels an in-progress quiz or leaves the summary,
+          // since this only fires outside picking).
           verifying = false; // leaving the verify quiz if we were mid-pass
           showingEntropy = !showingEntropy;
           showingEntropy ? drawEntropy() : drawResult();
@@ -1688,16 +1776,28 @@ void loop() {
       btn1WasDown = b1;
 
       // Touch input on this screen (v2.3.3): quiz cells while picking,
-      // < > page-nav cells on the word pages, and any tap advances the
-      // right/wrong screen (advancing is its only action); the entropy
-      // view takes no taps. Quiz cells use the two-tap rule (a wrong
-      // pick is a wrong verification); page nav is single-tap --
-      // instantly reversible, and the page redraw is its own feedback,
-      // so the two-tap rule stays reserved for consequential commits.
-      if (dstouch::detected() && !showingEntropy) {
+      // < > page-nav cells on the word pages and (v2.4.5) on the hex
+      // screen, and any tap advances the right/wrong and summary screens
+      // (advancing is their only action). Quiz cells use the two-tap
+      // rule (a wrong pick is a wrong verification); page nav is
+      // single-tap -- instantly reversible, and the page redraw is its
+      // own feedback, so the two-tap rule stays reserved for
+      // consequential commits.
+      if (dstouch::detected()) {
         int tx, ty;
         if (dstouch::tapped(tx, ty)) {
-          if (picking) {
+          if (showingEntropy) {
+            // The hex flow stop (v2.4.5): the same far-right stack as
+            // the word pages. < returns to the words; > continues the
+            // flow into the backup quiz. Misses are ignored, as everywhere.
+            int nav = pageNavAtPoint(tx, ty);
+            if (nav == 0) {
+              showingEntropy = false;
+              drawResult();
+            } else if (nav == 1) {
+              enterVerifyQuiz();
+            }
+          } else if (picking) {
             int s = verifyCellAtPoint(tx, ty);
             if (s >= 0) {
               if (verifyNeedsSelect || s != verifyChoiceIdx) {
@@ -1722,8 +1822,12 @@ void loop() {
                 resultPage++;
                 drawResult();
               } else {
-                // Same as BTN2 on the last page: enter the quiz.
-                enterVerifyQuiz();
+                // Last page (v2.4.5): the flow's next stop is the hex
+                // screen, not the quiz -- the entropy view gets a
+                // guaranteed visit before verification starts. Same as
+                // BTN2 here.
+                showingEntropy = true;
+                drawEntropy();
               }
             }
           } else {
@@ -1738,8 +1842,13 @@ void loop() {
       }
 
       int ev = button2Event();
-      if (ev == 1 && !showingEntropy) {
-        if (verifying && !verifyAnswered) {
+      if (ev == 1) {
+        if (showingEntropy) {
+          // On the hex screen (v2.4.5) BTN2 mirrors its > cell: forward
+          // into the quiz. Non-touch keeps the entropy view BTN1-only,
+          // exactly as before -- BTN2 there stays inert on this view.
+          if (dstouch::detected()) enterVerifyQuiz();
+        } else if (verifying && !verifyAnswered) {
           // Touch boards: nothing is pre-lit, so committing with no
           // selection would lock in an invisible default -- the exact
           // flaw the commit gates remove everywhere else. Refuse with
@@ -1766,9 +1875,16 @@ void loop() {
             resultPage++;
             drawResult();
           } else {
-            // Last word page -- verify before wrapping back to page 1,
-            // instead of just wrapping straight away.
-            enterVerifyQuiz();
+            // Last word page -- verify before wrapping back to page 1.
+            // On touch (v2.4.5) BTN2 mirrors the > cell: forward is the
+            // hex flow stop, and the quiz starts from there. Non-touch
+            // enters the quiz directly, as it always has.
+            if (dstouch::detected()) {
+              showingEntropy = true;
+              drawEntropy();
+            } else {
+              enterVerifyQuiz();
+            }
           }
         }
       }

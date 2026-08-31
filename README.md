@@ -205,20 +205,26 @@ though nothing about it is visible from a successful build log.
    hold both buttons for 2 seconds on the roll screen: a confirm screen
    offers Cancel (every entered roll kept) or Wipe & return to the menu
    (RAM scrubbed, device reboots).
-3. After the last roll, the mnemonic is shown, four words per screen
-   (button 2: next page; **on a Touch board** the `<`/`>` cells at the
-   right edge page back and forward — `<` is ignored on page 1, and `>`
-   on the last page starts the backup check). A red warning appears if
-   every single roll came
-   back identical — a sanity check, not a hard stop.
- 4. After the last word page, button 2 leads into a **backup quiz that
-    checks every word** — all 12 or all 24, one at a time (through v2.4.3
+ 3. After the last roll, the mnemonic is shown, four words per screen
+    (button 2: next page; **on a Touch board** the `<`/`>` cells at the
+    right edge page back and forward — `<` is ignored on page 1, and `>`
+    on the last page opens the **raw-entropy hex screen** below). A red
+    warning appears if
+    every single roll came
+    back identical — a sanity check, not a hard stop.
+ 4. Next comes the **backup quiz that checks every word** — all 12 or all
+    24, one at a time (through v2.4.3
     it spot-checked 3 checkpoint words; v2.4.4 removed the blind spots).
+    **On a Touch board** the quiz starts from the hex screen: `>` (or
+    button 2) there begins verification, `<` goes back to the words; on
+    button boards button 2 on the last word page enters the quiz
+    directly.
     Each check presents the 3 candidates (the real word plus 2 decoys) —
-    one at a time on button boards, or as three tap cells on a Touch
-    board (tap one to light it, tap it again to lock in); cycle with
-    button 1, lock in your pick with button 2, and it tells you
-    right/wrong; button 2 — or, on a Touch board, any tap — moves to the
+    one at a time on button
+    boards, or as three tap cells on a Touch board (tap one to light it,
+    tap it again to lock in); cycle with button 1, lock in your pick with
+    button 2, and it tells you right/wrong; button 2 — or, on a Touch
+    board, any tap — moves to the
     next word. This is a genuine blind pick, not a "here's the answer,
     compare it yourself" re-display — it's meant to catch "I misread the
     word the first time and wrote down the wrong one confidently," not
@@ -228,11 +234,15 @@ though nothing about it is visible from a successful build log.
     backup matches this seed."** — or lists every word number that did
     not match, so you can correct exactly those against the word list —
     then returns to page 1.
-5. **Button 1** on the result screen (word pages, or between quiz
-   checkpoints once you've locked in an answer)
-   toggles to a **raw entropy (hex)** view —
-   the intermediate bytes your rolls produced, before the BIP39 checksum
-   and word lookup. Paste that hex into any BIP39 tool's raw entropy field
+ 5. **Button 1** on the result screen (word pages, or between quiz
+    checkpoints once you've locked in an answer)
+    toggles to a **raw entropy (hex)** view —
+    the intermediate bytes your rolls produced, before the BIP39 checksum
+    and word lookup. **On a Touch board** (v2.4.5) the hex view instead
+    sits in the flow — `>` on the last word page shows it before the quiz
+    — and button 1 mirrors the `<` cell (back a page) rather than
+    toggling it.
+    Paste that hex into any BIP39 tool's raw entropy field
    (iancoleman.io: the **Hex [0-9A-F]** option, not its Dice mode — see
    [Cross-checking your output](#cross-checking-your-output)) to
    independently confirm the mnemonic, regardless of which build produced
@@ -248,7 +258,8 @@ On a **T-Display S3 Touch** board the word-count menu, the roll-entry
 screen, the leave-rolling confirm screen, and the result screen are
 touch-operable: the 12/24 counts, the six dice faces, the roll screen's
 `<` back cell, the cancel/wipe cells, the word-page `<`/`>` paging cells,
-and the quiz's candidate words draw as tap cells (the back and paging
+the hex screen's `<`/`>` cells (v2.4.5), and the quiz's candidate words
+draw as tap cells (the back and paging
 cells are single-tap — instantly reversible; everything that commits a
 choice keeps the two-tap rule).
 Nothing requires touch, and the buttons work identically on every screen
