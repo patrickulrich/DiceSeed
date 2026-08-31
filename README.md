@@ -53,6 +53,13 @@ other — see [Build variants](#build-variants).
 - LilyGO T-Display S3 — **either the plain or the Touch version**. Uses the
   board's ST7789 display (170×320, 8-bit parallel bus) and its two built-in
   buttons (GPIO0, GPIO14).
+- **Which button is which?** On a non-Touch board, every button-driven
+  screen carries small `1`/`2` markers plus an edge tick at the far right
+  of the display, aligned with the physical buttons on the board edge
+  (BTN1 = GPIO0 near the top-right, BTN2 = GPIO14 near the bottom-right) —
+  so the "BTN1: … BTN2: …" hint lines map to the hardware in your hand
+  without guessing. Touch boards don't draw these (their flows are
+  tap-driven).
 - **One firmware serves both boards.** On boot it probes for a capacitive
   touch controller; if one answers, the roll-entry screen adds a tap grid. If
   not, everything behaves exactly as it always has. The buttons work on every

@@ -304,8 +304,30 @@
 //                         there still means "committed choice is shown"),
 //                         and non-touch boards are unchanged. Implements
 //                         issue #10.
+//   2.4.3 (2026-08-31) - Button-edge markers on non-touch boards (issue
+//                         #12): a small "1" and "2" with a short edge
+//                         tick at the far right of the screen, at the
+//                         vertical positions of the physical GPIO0/BTN1
+//                         (top-right) and GPIO14/BTN2 (bottom-right)
+//                         buttons on the T-Display S3's board edge in
+//                         this rotation. The bottom-left hint lines say
+//                         what each button does; these say which physical
+//                         button IS "BTN1" -- the guess a first-time user
+//                         previously had to make by pressing. Drawn by
+//                         one drawButtonMarkers() helper (internally a
+//                         no-op on touch boards, per the issue) at the
+//                         end of every button-driven draw: menu, roll
+//                         entry, result/word pages, verify picking and
+//                         right/wrong, raw-entropy view, and the leave-
+//                         rolling confirm; the momentary wipe screen skips
+//                         it. Purely additive rendering -- no state, no
+//                         input, no logic changes. Y-offsets are
+//                         compile-verified best guesses (no non-touch
+//                         board on hand; two constants are the only
+//                         tuning if hardware disagrees). Implements issue
+//                         #12.
 
-#define FIRMWARE_VERSION_BASE "2.4.2"
+#define FIRMWARE_VERSION_BASE "2.4.3"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -498,6 +520,46 @@ bool rollBtn2WasDown = false;
 bool rollBtn2PurePress = false;
 unsigned long rollBtn2DownAt = 0;
 
+// ---- Button-edge markers, non-touch boards (issue #12) --------------------
+// Every button-driven screen explains the buttons in small text at the
+// bottom-left ("BTN1: toggle   BTN2: select") -- what each button DOES,
+// never which physical button IS "BTN1". On the T-Display S3 the two
+// buttons sit unlabeled on the board edge, so a first-time user has to
+// guess, press, and infer. These markers close that gap: a small "1" and
+// "2" plus an edge tick at the far right of the screen, at the vertical
+// positions of the physical buttons in this rotation (rotation 1,
+// landscape, USB-C left): GPIO0/BTN1 near the top-right corner, GPIO14/
+// BTN2 near the bottom-right.
+//
+// POSITION CAVEAT (v2.4.3): the y offsets below are best-guess values
+// derived from the board layout -- compile-verified only, exactly like the
+// v2.3.1 non-touch digit rendering (no non-touch board on hand; the touch
+// board shares the chassis, but the marker path is display-disabled there
+// by construction). If they miss the buttons on real hardware, these two
+// constants are the only tuning needed.
+static const int BTNMARK_X    = 310;   // digit column (6px wide at size 1)
+static const int BTNMARK1_Y   = 10;    // GPIO0  / BTN1: top-right of the edge
+static const int BTNMARK2_Y   = 152;   // GPIO14 / BTN2: bottom-right
+
+// No-op on touch boards (their flows are tap-driven and the grid needs
+// the full width, per issue #12) and on the momentary wipe screen (it is
+// never seen long enough to read anything). Called at the end of each
+// button-driven draw; purely additive rendering, no state, no input.
+static void drawButtonMarkers() {
+  if (dstouch::detected()) return;
+  const int ys[2] = { BTNMARK1_Y, BTNMARK2_Y };
+  const char digits[2] = { '1', '2' };
+  tft.setTextSize(1);  // 6x8 px glyph
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);  // hint-text color: it IS a hint
+  for (int i = 0; i < 2; i++) {
+    tft.setCursor(BTNMARK_X, ys[i]);
+    tft.print(digits[i]);
+    // Short tick at the very edge, vertically centered on the digit: reads
+    // as "a thing on the edge pointing at the board", not stray text.
+    tft.drawFastHLine(BTNMARK_X + 7, ys[i] + 4, 3, TFT_DARKGREY);
+  }
+}
+
 // ---- Touch menu cells ------------------------------------------------------
 // Only used when a touch panel is actually present. The button layout in
 // drawMenu() below is left exactly as it was, so a non-touch board renders
@@ -606,6 +668,7 @@ void drawMenu() {
   tft.setCursor(200, 155);
   tft.print("v");
   tft.print(FIRMWARE_VERSION);
+  drawButtonMarkers();
 }
 
 // Touch boards only: BTN2 with no count chosen must not start -- the
@@ -669,6 +732,7 @@ static void drawResetConfirm() {
   tft.setCursor(10, 155);
   tft.setTextColor(TFT_RED, TFT_BLACK);
   tft.println("Wipe erases all rolls so far");
+  drawButtonMarkers();
 }
 
 void startRolling() {
@@ -796,6 +860,7 @@ void drawRolling() {
   tft.println("BTN1: change value   BTN2 tap: confirm");
   tft.setCursor(10, 155);
   tft.println("BTN2 hold: back to previous roll");
+  drawButtonMarkers();
 }
 
 // ---- Result-screen page navigation (touch only, v2.3.3) ---------------
@@ -876,6 +941,7 @@ void drawResult() {
   tft.println("BTN1 tap: show raw entropy (hex)");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
 // Fills verifyWordNums with 3 checkpoint word numbers (1-based), spread
@@ -1047,6 +1113,7 @@ void drawVerifyPicking() {
   tft.println("BTN1: cycle choices   BTN2: select this one");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
 void drawVerifyResult() {
@@ -1074,6 +1141,7 @@ void drawVerifyResult() {
                   : (dstouch::detected() ? "Tap or BTN2: back to word list" : "BTN2 tap: back to word list"));
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
 // Locks in the currently-displayed/chosen candidate. Extracted (v2.3.3)
@@ -1120,6 +1188,7 @@ void drawEntropy() {
   tft.println("Paste into a BIP39 tool's Hex field.");
   tft.setCursor(10, 155);
   tft.println("BTN1 tap: back to words");
+  drawButtonMarkers();
 }
 
 void drawWipeConfirm() {
