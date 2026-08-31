@@ -282,8 +282,30 @@
 //                         byte-for-byte identical to v2.4.0; only file
 //                         paths, tests/test_core.cpp's include, and the
 //                         build commands in README.md changed.
+//   2.4.2 (2026-08-31) - The two-tap contract on the touch roll grid is
+//                         now visible in color (issue #10, with the
+//                         maintainer's requested deviation from the
+//                         issue's yellow proposal): the first tap
+//                         (selection) lights the chosen cell in BOLD
+//                         WHITE -- a double white border around the white
+//                         digit -- instead of green, and the confirm (a
+//                         second tap on that cell, or BTN2's short press)
+//                         flashes the cell GREEN for ~250ms before the
+//                         screen advances. Both stages of the interaction
+//                         used to render identically (green) and the
+//                         commit itself gave no feedback at all; green now
+//                         means exactly one thing on this screen: "this
+//                         value just entered rolls[]". The flash lives at
+//                         the top of the shared confirmCurrentRoll(), so
+//                         both commit paths flash identically. Deliberately
+//                         scoped to the roll grid: the menu/quiz cells and
+//                         the non-touch big digit keep their established
+//                         white-unselected/green-selected language (green
+//                         there still means "committed choice is shown"),
+//                         and non-touch boards are unchanged. Implements
+//                         issue #10.
 
-#define FIRMWARE_VERSION_BASE "2.4.1"
+#define FIRMWARE_VERSION_BASE "2.4.2"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -326,6 +348,24 @@ int csBits = 0;             // 4 or 8
 
 enum Screen { SCR_MENU, SCR_ROLLING, SCR_RESULT, SCR_WIPE_CONFIRM, SCR_RESET_CONFIRM };
 Screen screen = SCR_MENU;
+
+// The touch roll grid's three visual states (v2.4.2). Declared up here,
+// above every function definition, because the Arduino sketch preprocessor
+// hoists generated function prototypes to the top of the translation unit
+// -- a type first declared next to its only user (drawCell, far below)
+// would not exist yet where the prototype lands.
+//   CELL_PLAIN    darkgrey border, white digit -- nothing chosen
+//   CELL_SELECTED double white border, white digit -- "another tap here
+//                 commits this"
+//   CELL_CONFIRM  double green border, green digit -- the momentary flash
+//                 while the roll is being locked in
+// SELECTED used to be green (v2.2.0-v2.4.1), which made the two stages of
+// the two-tap contract look identical and gave the commit itself no
+// feedback at all. Green now means exactly one thing on this screen:
+// "this value just entered rolls[]". (Scope: this language is the roll
+// grid's only -- the menu/quiz cells and the non-touch big digit keep
+// their own established green-on-selection look.)
+enum CellLook { CELL_PLAIN, CELL_SELECTED, CELL_CONFIRM };
 
 // ---- RAM scrubbing -----------------------------------------------------
 // Uses mbedtls_platform_zeroize() instead of memset(): a plain memset on a
@@ -404,7 +444,7 @@ bool touchNeedsSelect = true;   // "no face has been explicitly chosen yet this
                                 // roll." Cleared by a tap OR by BTN1, since
                                 // both are deliberate choices; set on entry and
                                 // after every commit. Two jobs: the touch grid
-                                // shows no green cell until a real choice is
+                                // shows no lit cell until a real choice is
                                 // made (the post-commit reset to face 1 must
                                 // not look pre-selected), and a tap can only
                                 // commit a face that was actually chosen --
@@ -674,18 +714,20 @@ static int faceAtPoint(int x, int y) {
   return 0;
 }
 
-static void drawCell(int face, bool selected) {
+static void drawCell(int face, CellLook look) {
   int x, y;
   cellOrigin(face, x, y);
-  uint16_t border = selected ? TFT_GREEN : TFT_DARKGREY;
-  uint16_t digit  = selected ? TFT_GREEN : TFT_WHITE;
+  uint16_t border = (look == CELL_PLAIN) ? TFT_DARKGREY
+                   : (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
+  uint16_t digit  = (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
 
   tft.fillRoundRect(x, y, CELL_W, CELL_H, 6, TFT_BLACK);
   // The lit border is the "did my tap land, and on what?" feedback. Touch
   // gives no tactile confirmation the way the buttons do, so it has to be
   // visual or it isn't there at all.
   tft.drawRoundRect(x, y, CELL_W, CELL_H, 6, border);
-  if (selected) tft.drawRoundRect(x + 1, y + 1, CELL_W - 2, CELL_H - 2, 5, border);
+  if (look != CELL_PLAIN)
+    tft.drawRoundRect(x + 1, y + 1, CELL_W - 2, CELL_H - 2, 5, border);
 
   tft.setTextSize(4);                       // 24x32 px glyph
   tft.setTextColor(digit, TFT_BLACK);
@@ -715,11 +757,13 @@ static void drawRollingTouch() {
   tft.printf("Roll %d / %d", currentRollIndex + 1, rollsNeeded);
 
   // Nothing is shown as selected until a tap has actually landed: on entry
-  // every cell is plain white, and the green cell means "this is what a second
-  // tap will commit". Showing the post-commit reset value as pre-selected
-  // would be claiming a choice the user has not made yet.
+  // every cell is plain (grey border), and the white-outlined cell means
+  // "this is what a second tap will commit". Showing the post-commit
+  // reset value as pre-selected would be claiming a choice the user has
+  // not made yet.
   for (int face = 1; face <= 6; face++)
-    drawCell(face, !touchNeedsSelect && face == currentFace);
+    drawCell(face, (!touchNeedsSelect && face == currentFace) ? CELL_SELECTED
+                                                              : CELL_PLAIN);
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
@@ -1140,6 +1184,19 @@ void goBackOneRoll() {
 // duplicating the entropy-derivation block for a second caller would be the
 // real risk here.
 void confirmCurrentRoll() {
+  // Touch boards: the confirm flash (v2.4.2). Before advancing, the chosen
+  // cell blinks green for a beat -- the "locked in" signal -- so the commit
+  // itself finally has feedback instead of the white-outlined cell silently
+  // vanishing into the next roll's redraw. Both commit paths (second tap on
+  // the selected cell, BTN2 short press) land here, so both flash
+  // identically. A blocking delay is fine in this path: it is not
+  // time-critical (it ends in a full redraw anyway) and matches the
+  // existing debounce-delay pattern; it also leaks nothing (no Serial, no
+  // radio), so the security model is untouched.
+  if (dstouch::detected()) {
+    drawCell(currentFace, CELL_CONFIRM);
+    delay(250);
+  }
   touchNeedsSelect = true;  // the only line added to the extracted body
   rolls[currentRollIndex] = currentFace;
   currentRollIndex++;

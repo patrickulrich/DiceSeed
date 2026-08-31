@@ -248,13 +248,17 @@ either way. Touch is additive, never required.
   tap the same count again to start**. No cell starts pre-lit, and until a
   count is chosen BTN2 refuses to start (red hint) instead of committing
   an invisible default.
-- **First tap selects** a face and turns its cell green. **A second tap on that
-  same cell commits** the roll. It is deliberately not commit-on-first-tap: a
+- **First tap selects** a face and outlines its cell in bold white (a
+  double white border). **A second tap on that same cell commits** the
+  roll — the cell flashes green for a beat as it locks in, then the screen
+  advances. It is deliberately not commit-on-first-tap: a
   mis-tap would otherwise write a wrong roll with no warning, and on this
   device a wrong roll is a wrong seed.
-- Until you choose, every cell is plain white. The green cell always means
-  "another tap here commits this." After a commit the grid returns to all
-  white rather than pre-selecting a value you did not pick.
+- Until you choose, every cell is plain (grey border, white digit). The
+  white-outlined cell always means "another tap here commits this"; green
+  on this screen is only ever the momentary confirm flash. After a commit
+  the grid returns to all-plain rather than pre-selecting a value you did
+  not pick.
 - **The buttons still work**, and work identically, including on a Touch
   board — cycling with button 1 lights the matching cell. Mix the two freely.
 - Taps landing in the gaps between cells are ignored rather than snapped to the
