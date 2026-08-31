@@ -326,8 +326,39 @@
 //                         board on hand; two constants are the only
 //                         tuning if hardware disagrees). Implements issue
 //                         #12.
+//   2.4.4 (2026-08-31) - The backup quiz now verifies EVERY word (issue
+//                         #14, maintainer decision: replace the 3-word
+//                         sample outright rather than offer full mode as
+//                         an opt-in). v2.1.0-v2.4.3 checked 3 fixed
+//                         checkpoints (~25%/60%/90%) -- fast, but blind
+//                         to any error in the 9 (12-word) or 21 (24-word)
+//                         unchecked slots, and one wrong word in an
+//                         unchecked slot is an unrecoverable backup years
+//                         later. pickVerifyWords() now fills sequential
+//                         positions 1..wordCount; verifyWordNums widened
+//                         [3]->[24] (+21 bytes BSS; positions only,
+//                         never words, so no sensitivity change); the
+//                         quiz's exit comparisons consult verifyTotal
+//                         instead of the literal 3; progress shows
+//                         "(n/12)" or "(n/24)". Mechanics per word are
+//                         unchanged: 3 blind candidates (1 real, 2
+//                         decoys), right/wrong after each pick. New
+//                         end-of-quiz SUMMARY screen: "All 12/24 words
+//                         verified. Your backup matches this seed." or a
+//                         red list of every missed word number -- word
+//                         numbers only, never re-displaying words.
+//                         Misses are recorded in verifyMisses[] (reset at
+//                         quiz entry via the new enterVerifyQuiz() and at
+//                         the result-screen reset; recorded in
+//                         lockInVerifyChoice()). The advance logic lives
+//                         in one shared advanceVerifyStep() and the
+//                         summary exit in finishVerifyQuiz(), so the tap
+//                         and BTN2 paths move identically. verifyChoices
+//                         stays [3][16], re-filled and scrubbed per step
+//                         -- full verification lengthens exposure TIME,
+//                         not surface. Implements issue #14.
 
-#define FIRMWARE_VERSION_BASE "2.4.3"
+#define FIRMWARE_VERSION_BASE "2.4.4"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -448,8 +479,26 @@ bool showingEntropy = false;    // result-screen sub-view: words vs raw entropy 
 bool btn1WasDown = false;       // result-screen BTN1 edge tracking (independent
 bool btn1PureTap = false;       // of button1Pressed() -- see SCR_RESULT for why
 bool verifying = false;         // result-screen sub-view: backup-verification quiz
-int verifyStep = 0;             // which of the 3 verify checkpoints we're on
-uint8_t verifyWordNums[3];      // 1-based word numbers to spot-check this session
+int verifyStep = 0;             // which verify word we're on (0-based)
+int verifyTotal = 12;           // how many words this quiz covers -- every
+                                // word of the phrase (v2.4.4): 12 or 24,
+                                // set by pickVerifyWords(). Was a fixed 3
+                                // (checkpoint words) through v2.4.3.
+uint8_t verifyWordNums[24];     // 1-based word numbers this quiz asks
+                                // about, in phrase order (v2.4.4 --
+                                // sequential 1..wordCount; was 3
+                                // proportional checkpoints through
+                                // v2.4.3). Widened from [3] to [24];
+                                // stores POSITIONS, never words, so it
+                                // carries no sensitivity.
+uint8_t verifyMisses[24];       // word numbers that were answered wrong
+                                // this pass (v2.4.4) -- for the end-of-
+                                // quiz summary. Like verifyWordNums,
+                                // positions only, not sensitive.
+int verifyMissCount = 0;
+bool verifySummary = false;     // showing the end-of-quiz summary screen
+                                // (v2.4.4); the summary's only action
+                                // (BTN2 or any tap) returns to page 1.
 int verifyChoiceIdx = 0;        // which of the 3 is currently displayed
 int verifyCorrectSlot = 0;      // which slot (0-2) holds the real word
 bool verifyAnswered = false;    // false = picking, true = showing right/wrong
@@ -944,21 +993,18 @@ void drawResult() {
   drawButtonMarkers();
 }
 
-// Fills verifyWordNums with 3 checkpoint word numbers (1-based), spread
-// roughly beginning/middle/end regardless of word count, so the check
-// works the same shape whether the mnemonic is 12 or 24 words. Fixed
-// absolute numbers like "3, 8, 12" only make sense for one word count;
-// these are proportional (~25%/60%/90%) and rounded to the nearest word
-// with integer math (n*pct+50)/100, which matches round-to-nearest --
-// e.g. 12 words -> 3, 7, 11; 24 words -> 6, 14, 22.
+// Fills verifyWordNums with EVERY word number of the phrase, in order
+// (v2.4.4): the backup quiz now checks all 12 or all 24 words rather
+// than 3 proportional checkpoints (v2.1.0-v2.4.3). The checkpoint design
+// sampled beginning/middle/end to catch skips and run-ons quickly, but
+// could not catch an error on any unchecked position -- and a single
+// wrong word in an unchecked slot is an unrecoverable-by-memory backup
+// years later. Full verification costs a few minutes; that is the point
+// (issue #14's maintainer decision: replace, not opt in). Also sets
+// verifyTotal, which every quiz exit comparison consults.
 void pickVerifyWords() {
-  const int pct[3] = { 25, 60, 90 };
-  for (int i = 0; i < 3; i++) {
-    int n = (wordCount * pct[i] + 50) / 100;
-    if (n < 1) n = 1;
-    if (n > wordCount) n = wordCount;
-    verifyWordNums[i] = (uint8_t)n;
-  }
+  verifyTotal = wordCount;
+  for (int i = 0; i < wordCount; i++) verifyWordNums[i] = (uint8_t)(i + 1);
 }
 
 // Fills out[0]/out[1] with two DECOY word indices into BIP39_WORDS --
@@ -1062,7 +1108,9 @@ static void drawVerifyPickingTouch() {
   tft.setCursor(10, 5);
   tft.print("Verify backup (");
   tft.print(verifyStep + 1);
-  tft.print("/3)");
+  tft.print("/");
+  tft.print(verifyTotal);
+  tft.print(")");
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(10, 26);
   tft.print("Word #");
@@ -1095,7 +1143,9 @@ void drawVerifyPicking() {
   tft.setCursor(10, 5);
   tft.print("Verify backup (");
   tft.print(verifyStep + 1);
-  tft.print("/3)");
+  tft.print("/");
+  tft.print(verifyTotal);
+  tft.print(")");
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(10, 35);
   tft.print("Word #");
@@ -1136,9 +1186,65 @@ void drawVerifyResult() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 142);
-  tft.println(verifyStep + 1 < 3
-                  ? (dstouch::detected() ? "Tap or BTN2: next check" : "BTN2 tap: next check")
-                  : (dstouch::detected() ? "Tap or BTN2: back to word list" : "BTN2 tap: back to word list"));
+  tft.println(verifyStep + 1 < verifyTotal
+                  ? (dstouch::detected() ? "Tap or BTN2: next word" : "BTN2 tap: next word")
+                  : (dstouch::detected() ? "Tap or BTN2: summary" : "BTN2 tap: summary"));
+  tft.setCursor(10, 155);
+  tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
+}
+
+// End-of-quiz summary (v2.4.4): with every word now checked, the pass
+// deserves a verdict that says what it verified -- and, on failure, names
+// every missed position so the paper copy can be corrected against the
+// word list instead of re-quizzing blind. Word NUMBERS only here: no
+// mnemonic word is ever re-displayed by the summary.
+void drawVerifySummary() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 5);
+  if (verifyMissCount == 0) {
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.print("All ");
+    tft.print(verifyTotal);
+    tft.println(" words verified.");
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(10, 35);
+    tft.println("Your backup matches");
+    tft.println("this seed.");
+  } else {
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.print(verifyMissCount);
+    tft.print(verifyMissCount == 1 ? " word did" : " words did");
+    tft.println(" not match:");
+    // List the missed positions, wrapping at the screen edge ("#7, #19, "
+    // at size 1 = 6px/char; worst case 24 misses -> at most 3 lines).
+    // print() streams -- no String/printf, same discipline as everywhere
+    // else this file renders.
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(1);
+    int x = 10, y = 40;
+    for (int i = 0; i < verifyMissCount; i++) {
+      int w = 1 + ((verifyMisses[i] >= 10) ? 2 : 1);  // "#" + digits
+      if (i + 1 < verifyMissCount) w += 1;            // room for the comma
+      if (x + 6 * w > 310) { x = 10; y += 14; }
+      tft.setCursor(x, y);
+      tft.print("#");
+      tft.print(verifyMisses[i]);
+      if (i + 1 < verifyMissCount) tft.print(",");
+      x += 6 * w + 6;
+    }
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(10, 100);
+    tft.println("Re-check those words");
+    tft.println("against the word list.");
+  }
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 142);
+  tft.println(dstouch::detected() ? "Tap or BTN2: back to word list"
+                                  : "BTN2 tap: back to word list");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
   drawButtonMarkers();
@@ -1147,10 +1253,47 @@ void drawVerifyResult() {
 // Locks in the currently-displayed/chosen candidate. Extracted (v2.3.3)
 // from the BTN2 handler so the touch path commits through exactly the
 // same code -- same single-source reasoning as confirmCurrentRoll (v2.2.0).
+// v2.4.4: also records misses for the end-of-quiz summary.
 void lockInVerifyChoice() {
   verifyAnswered = true;
   verifyWasCorrect = (verifyChoiceIdx == verifyCorrectSlot);
+  if (!verifyWasCorrect) verifyMisses[verifyMissCount++] = verifyWordNums[verifyStep];
   drawVerifyResult();
+}
+
+// Enters the backup-verification quiz from the last word page. Extracted
+// (v2.4.4) from its two call sites (touch `>` cell, BTN2) so the quiz
+// state -- including the v2.4.4 miss list -- is initialized in exactly
+// one place; a re-quiz after a finished pass starts with clean misses.
+void enterVerifyQuiz() {
+  verifying = true;
+  verifyStep = 0;
+  verifyMissCount = 0;
+  verifySummary = false;
+  startVerifyStep();
+}
+
+// Advances past a right/wrong screen: to the next word, or (v2.4.4) to
+// the summary once every word has been asked. Shared by the tap-anywhere
+// path and the BTN2 path so both advance identically -- the same
+// single-source discipline as lockInVerifyChoice.
+void advanceVerifyStep() {
+  verifyStep++;
+  if (verifyStep >= verifyTotal) {
+    verifySummary = true;
+    drawVerifySummary();
+  } else {
+    startVerifyStep();
+  }
+}
+
+// Leaves the quiz from the summary screen (v2.4.4): back to page 1 of
+// the word list -- the same exit the quiz always had, one screen later.
+void finishVerifyQuiz() {
+  verifying = false;
+  verifySummary = false;
+  resultPage = 0;
+  drawResult();
 }
 
 // One nibble at a time via a constant lookup table, never a formatted
@@ -1293,6 +1436,8 @@ void confirmCurrentRoll() {
     btn1PureTap = false;
     verifying = false;
     verifyStep = 0;
+    verifyMissCount = 0;   // v2.4.4: clean slate for the next session's quiz
+    verifySummary = false;
     pickVerifyWords();
     screen = SCR_RESULT;
     drawResult();
@@ -1578,22 +1723,16 @@ void loop() {
                 drawResult();
               } else {
                 // Same as BTN2 on the last page: enter the quiz.
-                verifying = true;
-                verifyStep = 0;
-                startVerifyStep();
+                enterVerifyQuiz();
               }
             }
           } else {
             // Right/wrong screen (verifying && verifyAnswered): the whole
-            // screen is the tap target -- same advance BTN2 performs.
-            verifyStep++;
-            if (verifyStep >= 3) {
-              verifying = false;
-              resultPage = 0;
-              drawResult();
-            } else {
-              startVerifyStep();
-            }
+            // screen is the tap target -- same advance BTN2 performs. The
+            // summary screen (v2.4.4) behaves the same way: its only
+            // action is leaving, back to the word list.
+            if (verifySummary) finishVerifyQuiz();
+            else advanceVerifyStep();
           }
         }
       }
@@ -1616,16 +1755,10 @@ void loop() {
             lockInVerifyChoice();
           }
         } else if (verifying) {
-          // Already showed right/wrong -- move to the next checkpoint,
-          // or finish the quiz and return to the word list.
-          verifyStep++;
-          if (verifyStep >= 3) {
-            verifying = false;
-            resultPage = 0;
-            drawResult();
-          } else {
-            startVerifyStep();
-          }
+          // Already showed right/wrong (or the summary) -- move to the
+          // next word, or finish via the summary back to the word list.
+          if (verifySummary) finishVerifyQuiz();
+          else advanceVerifyStep();
         } else {
           int perPage = 4;
           int totalPages = (wordCount + perPage - 1) / perPage;
@@ -1635,9 +1768,7 @@ void loop() {
           } else {
             // Last word page -- verify before wrapping back to page 1,
             // instead of just wrapping straight away.
-            verifying = true;
-            verifyStep = 0;
-            startVerifyStep();
+            enterVerifyQuiz();
           }
         }
       }

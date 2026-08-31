@@ -211,20 +211,23 @@ though nothing about it is visible from a successful build log.
    on the last page starts the backup check). A red warning appears if
    every single roll came
    back identical — a sanity check, not a hard stop.
-4. After the last word page, button 2 leads into a **3-step backup quiz**
-   instead of wrapping back to page 1, spot-checking word #3, #7, and #11
-   (12-word) or #6, #14, and #22 (24-word) — spread roughly
-   beginning/middle/end of the phrase. Each check presents the 3
-   candidates (the real word plus 2 decoys) — one at a time on button
-   boards, or as three tap cells on a Touch board (tap one to light it,
-   tap it again to lock in); cycle with button 1, lock in your pick with
-   button 2, and it tells you right/wrong; button 2 — or, on a Touch
-   board, any tap — moves to the next checkpoint. This is a genuine
-   blind pick, not a "here's the answer, compare it yourself" re-display —
-   it's meant to catch "I misread the word and wrote down the wrong one
-   confidently," not just "did I copy it correctly," which is the more
-   common and more serious way a written-down backup actually goes wrong.
-   After the 3rd checkpoint it returns to page 1.
+ 4. After the last word page, button 2 leads into a **backup quiz that
+    checks every word** — all 12 or all 24, one at a time (through v2.4.3
+    it spot-checked 3 checkpoint words; v2.4.4 removed the blind spots).
+    Each check presents the 3 candidates (the real word plus 2 decoys) —
+    one at a time on button boards, or as three tap cells on a Touch
+    board (tap one to light it, tap it again to lock in); cycle with
+    button 1, lock in your pick with button 2, and it tells you
+    right/wrong; button 2 — or, on a Touch board, any tap — moves to the
+    next word. This is a genuine blind pick, not a "here's the answer,
+    compare it yourself" re-display — it's meant to catch "I misread the
+    word the first time and wrote down the wrong one confidently," not
+    just "did I copy it correctly," which is the more common and more
+    serious way a written-down backup actually goes wrong. After the last
+    word a summary screen reports **"All 12/24 words verified. Your
+    backup matches this seed."** — or lists every word number that did
+    not match, so you can correct exactly those against the word list —
+    then returns to page 1.
 5. **Button 1** on the result screen (word pages, or between quiz
    checkpoints once you've locked in an answer)
    toggles to a **raw entropy (hex)** view —
