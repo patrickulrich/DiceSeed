@@ -68,6 +68,44 @@ other — see [Build variants](#build-variants).
 - USB-C cable for flashing. **Not required afterward** — see the security
   note about running on battery power for actual use.
 
+## Installing DiceSeed
+
+Every release publishes two firmware files plus `SHA-256SUMS`. Each file
+is a **complete image** — bootloader, partition table, and application
+together — and installing it is one command, the same whether the board
+is brand-new or already running an older DiceSeed:
+
+```sh
+sha256sum --ignore-missing -c SHA-256SUMS     # verify before you flash
+esptool write-flash 0x0 diceseed-vX.Y.Z-compat.bin
+```
+
+(Get `esptool` with `pip install esptool`. On Linux your user needs the
+`dialout` group; the USB-C cable must carry data, not charge-only.)
+
+**Which file**: `-compat` is the default build; `-classic` is the
+hand-auditable alternative — see [Build variants](#build-variants).
+Picking "wrong" is harmless: same hardware either way, reflash the other
+one.
+
+**A failed flash is never a dead board.** The ESP32-S3's download mode
+lives in silicon — hold **BOOT** while pressing **RST** (or while
+plugging in) and the chip accepts a fresh flash over USB no matter what
+the flash contains. Interrupted writes are recovered by simply flashing
+again.
+
+**Second-hand board, or want a provably clean chip?** Run
+`esptool erase-chip` once before your first flash — it wipes all 16MB
+to the erased state; regular installs never need it (DiceSeed keeps
+secrets in RAM only, so ordinary updates leave nothing behind).
+
+The `SHA-256SUMS` check proves your download is exactly what CI built
+from the tagged commit; the stronger form — rebuilding the release
+yourself and comparing hashes — is documented in
+[Reproducible builds](docs/reproducible-build.md). Where a maintainer has
+enabled signed releases, verify the signature first — see
+[Signing](docs/signing.md).
+
 ## Build variants
 
 One codebase, one repo, two firmware builds — selected by a single flag in
@@ -102,7 +140,20 @@ The menu screen's version string shows which one is actually flashed
 (`v2.0.0-classic` / `v2.0.0-compat`) — always check it after flashing,
 especially if you're maintaining both builds across multiple boards.
 
-## Build & flash
+## Building from source
+
+Only needed for development, or to verify releases independently. If you
+just want DiceSeed on a board, see [Installing DiceSeed](#installing-diceseed).
+
+- **Reproducibly** (recommended when the result matters):
+  `tools/build-firmware.sh` builds both variants in a throwaway Docker
+  container from a pinned toolchain, byte-identical to the release
+  binaries — see [Reproducible builds](docs/reproducible-build.md).
+- **With your own toolchain** (fast development iteration: compile and
+  flash in one step): the IDE or `arduino-cli` instructions below. Your
+  binaries may differ from the releases as toolchain versions drift —
+  fine for development; flash from a release or the Docker build when
+  the result matters.
 
 Confirmed working on real hardware as of v1.2.0 (display renders correctly),
 v2.0.1 (compat build's entropy matched both SeedSigner and iancoleman.io on
@@ -122,7 +173,12 @@ cells — confirmed on the Touch board via a full 50-roll session), and
 v2.4.0 (a back cell on the touch roll screen — confirmed on the Touch
 board), and v2.4.1 (repository layout only: the sketch moved into a
 `DiceSeed/` subdirectory so "Download ZIP" opens cleanly — no firmware
-change, byte-for-byte identical to v2.4.0).
+change, byte-for-byte identical to v2.4.0), and v2.4.2-v2.4.7 (the
+roll-grid select/flash color language, the all-words backup quiz with
+its summary, and the hex flow screen — confirmed on the Touch board; the
+button-edge markers via a forced-non-touch build on the same chassis;
+plus the CI/reproducible-build/release pipeline, confirmed by its own
+runs).
 
 **Getting the code onto disk:** `git clone
 https://github.com/Lexcat25/DiceSeed.git`, or use GitHub's "Download ZIP".

@@ -449,8 +449,38 @@
 //                         y-offset guesses were right, the digits were
 //                         swapped, and only the two BTNMARK constants
 //                         exchanged values.
+//   2.4.8 (2026-09-01) - Full-image releases + opt-in signing; no
+//                         firmware-logic change. tools/build-firmware.sh
+//                         now ships DiceSeed.ino.merged.bin (bootloader +
+//                         partition table + application) as the release
+//                         artifact under the existing names, with the
+//                         core's full-flash 0xFF padding trimmed
+//                         (16MB -> ~450KB, lossless -- unwritten flash
+//                         reads back erased-or-stale either way, exactly
+//                         how every ESP32 app-only update has always
+//                         behaved; deterministic, so reproducibility is
+//                         unaffected). One file, one address (0x0), the
+//                         same command for a new board and an update --
+//                         closing the gap where a blank board needed a
+//                         one-time toolchain. The release job gained
+//                         OPTIONAL PGP signing: with a SIGNING_KEY
+//                         secret in the "release" environment it signs
+//                         SHA-256SUMS (detached .sig) and creates a
+//                         signed annotated tag; without one -- any fork
+//                         or fresh clone, including this one -- releases
+//                         publish unsigned with hashes only, unchanged
+//                         (docs/signing.md documents enabling it). The
+//                         v2.4.7 release was withdrawn: its app-only
+//                         files share names with these full images.
+//                         README rewritten: "Installing DiceSeed"
+//                         section (verify-before-flash, BOOT-button
+//                         recovery note, erase-chip clean-chip option)
+//                         before "Build variants"; "Build & flash" is
+//                         now "Building from source", the development
+//                         path. Hardware-verification record extended
+//                         through v2.4.7.
 
-#define FIRMWARE_VERSION_BASE "2.4.7"
+#define FIRMWARE_VERSION_BASE "2.4.8"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why

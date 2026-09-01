@@ -17,6 +17,19 @@
 # A workflow_dispatch "dry run" rehearses the detection on any branch
 # with zero side effects.
 #
+# RELEASE ARTIFACTS ARE FULL IMAGES (v2.4.8): each .bin is the complete
+# firmware (bootloader + partition table + application), trailing 0xFF
+# padding trimmed -- one file, one address (0x0), the same command for a
+# new board and an update.
+#
+# SIGNING IS OPT-IN (v2.4.8): if a SIGNING_KEY secret exists in the
+# "release" environment, the release is PGP-signed (detached signature on
+# SHA-256SUMS + a signed annotated tag). Without it -- the default on any
+# fork or fresh clone -- releases publish unsigned with hashes only,
+# exactly as before. Referencing the environment auto-creates it where it
+# does not exist, so this workflow runs identically either way. See
+# docs/signing.md to enable signing.
+#
 # TOOLCHAIN PINS live in tools/build-firmware.sh (single source of
 # truth). They are deliberate, not convenience: this firmware's value
 # proposition is "same rolls -> same mnemonic, verifiably." An unpinned
@@ -93,6 +106,11 @@ jobs:
       || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
+    # The signing key lives as an environment secret, scoped here. Where
+    # the environment does not exist (any fork/fresh clone), GitHub
+    # auto-creates it empty and the signing steps no-op -- releases
+    # publish unsigned with hashes, unchanged behavior.
+    environment: release
     permissions:
       contents: write
     steps:
@@ -160,15 +178,52 @@ jobs:
         if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           TAG: ${{ steps.detect.outputs.tag }}
-        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+        run: |
+          set -eu
+          if [ -z "$SIGNING_KEY" ]; then
+            # Unsigned mode: lightweight tag via the API, as before.
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+            echo "Tagged $TAG (lightweight; no signing key configured)."
+          else
+            # Signed mode: annotated tag carrying the key's signature.
+            printf '%s' "$SIGNING_KEY" | gpg --import >/dev/null 2>&1
+            git config user.name "$GITHUB_REPOSITORY release bot"
+            git config user.email "noreply@users.noreply.github.com"
+            git config user.signingkey "$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')"
+            export GPG_TTY="$(tty 2>/dev/null || echo /dev/null)"
+            git tag -s "$TAG" -m "DiceSeed $TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+            echo "Tagged $TAG (signed annotated tag)."
+          fi
 
       - name: Build both variants (reproducible, same as everything else)
         if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
         run: tools/build-firmware.sh build "${{ steps.detect.outputs.tag }}"
 
+      # Signs the manifest when (and only when) a signing key is
+      # configured in the release environment. The detached signature
+      # covers both .bin files (they are listed inside SHA-256SUMS).
+      - name: Sign SHA-256SUMS (when a key is configured)
+        if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          set -eu
+          cd build
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::notice::No SIGNING_KEY in the release environment -- publishing unsigned (hashes only). See docs/signing.md to enable."
+            exit 0
+          fi
+          printf '%s' "$SIGNING_KEY" | gpg --import >/dev/null 2>&1
+          gpg --detach-sig --output SHA-256SUMS.sig SHA-256SUMS
+          echo "Signed SHA-256SUMS:"
+          gpg --list-packets SHA-256SUMS.sig | grep -m1 "keyid" || true
+
       # Creates the release with the notes file as its body, or -- if a
       # re-run finds it already exists -- just refreshes the assets.
+      # nullglob: the .sig joins the upload only in signed mode.
       - name: Publish the release
         if: steps.detect.outputs.skip != '1' && github.event_name == 'push'
         env:
@@ -176,14 +231,19 @@ jobs:
           TAG: ${{ steps.detect.outputs.tag }}
         run: |
           set -eu
+          shopt -s nullglob
+          assets=(build/*.bin build/SHA-256SUMS build/*.sig)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::no release assets found"; exit 1
+          fi
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" build/*.bin build/SHA-256SUMS --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" "${assets[@]}" --clobber -R "$GITHUB_REPOSITORY"
             echo "Release $TAG already existed; assets refreshed."
           else
             gh release create "$TAG" \
               --title "$TAG" \
               --notes-file "docs/releases/$TAG.md" \
-              build/*.bin build/SHA-256SUMS \
+              "${assets[@]}" \
               -R "$GITHUB_REPOSITORY"
-            echo "Released $TAG with binaries + SHA-256SUMS."
+            echo "Released $TAG:"; ls -l build/
           fi

@@ -108,15 +108,41 @@ docker run --rm \
       # A custom --build-path forces a full, cache-independent build
       # (arduino-cli >= 1.0.4) and --clean makes that explicit: nothing
       # from a previous variant, a previous run, or the download cache
-      # can reach the artifacts. The app binary is taken straight from
-      # the build path -- no --output-dir, which additionally stages a
-      # legacy export tree inside the sketch folder.
+      # can reach the artifacts. No --output-dir: it additionally stages
+      # a legacy export tree inside the sketch folder.
       arduino-cli compile \
         --fqbn esp32:esp32:lilygo_t_display_s3 \
         --build-property "build.extra_flags=${extra}" \
         --build-path "/tmp/build-${name}" --clean \
         /tmp/DiceSeed
-      cp "/tmp/build-${name}/DiceSeed.ino.bin" "/out/diceseed-${LABEL}-${name}.bin"
+
+      # The release artifact is the MERGED image (v2.4.8): bootloader +
+      # partition table + application in one file, flashed at 0x0 -- one
+      # file, one address, the same command for a brand-new board and an
+      # update. The core generates it padded to the FULL flash size (16MB
+      # for this board); everything after the app is 0xFF filler (the
+      # erased state), so the tail is trimmed: find the last real byte,
+      # round up to the 4KB sector, truncate. 16MB -> ~450KB, lossless --
+      # unwritten flash reads back erased-or-stale-but-unused either way,
+      # exactly how every app-only ESP32 update has always behaved
+      # (esptool erases only what it writes). The trimming is
+      # deterministic, so reproducibility is unaffected. The bare app
+      # image (DiceSeed.ino.bin) stays in the build dir for anyone who
+      # specifically wants an app-only artifact.
+      python3 - "/tmp/build-${name}/DiceSeed.ino.merged.bin" \
+               "/out/diceseed-${LABEL}-${name}.bin" <<'PYEOF'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+with open(src, "rb") as f:
+    data = f.read()
+last = len(data) - 1
+while last >= 0 and data[last] == 0xFF:
+    last -= 1
+end = min(((last // 4096) + 1) * 4096, len(data))
+with open(dst, "wb") as f:
+    f.write(data[:end])
+print(f"{dst}: trimmed {len(data)} -> {end} bytes")
+PYEOF
     }
 
     # Compat is the default build: build_mode.h guards with #ifndef and
