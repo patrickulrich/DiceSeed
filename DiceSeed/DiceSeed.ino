@@ -282,8 +282,175 @@
 //                         byte-for-byte identical to v2.4.0; only file
 //                         paths, tests/test_core.cpp's include, and the
 //                         build commands in README.md changed.
+//   2.4.2 (2026-08-31) - The two-tap contract on the touch roll grid is
+//                         now visible in color (issue #10, with the
+//                         maintainer's requested deviation from the
+//                         issue's yellow proposal): the first tap
+//                         (selection) lights the chosen cell in BOLD
+//                         WHITE -- a double white border around the white
+//                         digit -- instead of green, and the confirm (a
+//                         second tap on that cell, or BTN2's short press)
+//                         flashes the cell GREEN for ~250ms before the
+//                         screen advances. Both stages of the interaction
+//                         used to render identically (green) and the
+//                         commit itself gave no feedback at all; green now
+//                         means exactly one thing on this screen: "this
+//                         value just entered rolls[]". The flash lives at
+//                         the top of the shared confirmCurrentRoll(), so
+//                         both commit paths flash identically. Deliberately
+//                         scoped to the roll grid: the menu/quiz cells and
+//                         the non-touch big digit keep their established
+//                         white-unselected/green-selected language (green
+//                         there still means "committed choice is shown"),
+//                         and non-touch boards are unchanged. Implements
+//                         issue #10.
+//   2.4.3 (2026-08-31) - Button-edge markers on non-touch boards (issue
+//                         #12): a small "1" and "2" with a short edge
+//                         tick at the far right of the screen, at the
+//                         vertical positions of the physical GPIO14/BTN2
+//                         (top-right) and GPIO0/BTN1 (bottom-right)
+//                         buttons on the T-Display S3's board edge in
+//                         this rotation. The bottom-left hint lines say
+//                         what each button does; these say which physical
+//                         button IS "BTN1" -- the guess a first-time user
+//                         previously had to make by pressing. Drawn by
+//                         one drawButtonMarkers() helper (internally a
+//                         no-op on touch boards, per the issue) at the
+//                         end of every button-driven draw: menu, roll
+//                         entry, result/word pages, verify picking and
+//                         right/wrong, raw-entropy view, and the leave-
+//                         rolling confirm; the momentary wipe screen skips
+//                         it. Purely additive rendering -- no state, no
+//                         input, no logic changes. Y-offsets are
+//                         compile-verified best guesses (no non-touch
+//                         board on hand; two constants are the only
+//                         tuning if hardware disagrees). Implements issue
+//                         #12.
+//   2.4.4 (2026-08-31) - The backup quiz now verifies EVERY word (issue
+//                         #14, maintainer decision: replace the 3-word
+//                         sample outright rather than offer full mode as
+//                         an opt-in). v2.1.0-v2.4.3 checked 3 fixed
+//                         checkpoints (~25%/60%/90%) -- fast, but blind
+//                         to any error in the 9 (12-word) or 21 (24-word)
+//                         unchecked slots, and one wrong word in an
+//                         unchecked slot is an unrecoverable backup years
+//                         later. pickVerifyWords() now fills sequential
+//                         positions 1..wordCount; verifyWordNums widened
+//                         [3]->[24] (+21 bytes BSS; positions only,
+//                         never words, so no sensitivity change); the
+//                         quiz's exit comparisons consult verifyTotal
+//                         instead of the literal 3; progress shows
+//                         "(n/12)" or "(n/24)". Mechanics per word are
+//                         unchanged: 3 blind candidates (1 real, 2
+//                         decoys), right/wrong after each pick. New
+//                         end-of-quiz SUMMARY screen: "All 12/24 words
+//                         verified. Your backup matches this seed." or a
+//                         red list of every missed word number -- word
+//                         numbers only, never re-displaying words.
+//                         Misses are recorded in verifyMisses[] (reset at
+//                         quiz entry via the new enterVerifyQuiz() and at
+//                         the result-screen reset; recorded in
+//                         lockInVerifyChoice()). The advance logic lives
+//                         in one shared advanceVerifyStep() and the
+//                         summary exit in finishVerifyQuiz(), so the tap
+//                         and BTN2 paths move identically. verifyChoices
+//                         stays [3][16], re-filled and scrubbed per step
+//                         -- full verification lengthens exposure TIME,
+//                         not surface. Implements issue #14.
+//   2.4.5 (2026-08-31) - The raw-entropy hex view is a FLOW STOP on
+//                         touch boards (issue #15, reshaped per the
+//                         maintainer's preference: a screen in the path
+//                         rather than a third nav cell). After the last
+//                         word page, > (or BTN2) now opens the hex
+//                         screen instead of the quiz; the hex screen
+//                         carries the same < > far-right nav stack, <
+//                         returning to the words and > starting the
+//                         backup quiz -- so seeing the entropy before
+//                         verification is guaranteed, not optional.
+//                         Issue #15's proposed third "#" cell below the
+//                         < > stack was rejected: three 48px cells do
+//                         not fit the 170px screen height, and a linear
+//                         flow reads cleaner than a squeezed control.
+//                         Consequence: on touch boards BTN1 no longer
+//                         toggles words<->hex (flow-only by design) --
+//                         it mirrors < instead (back a page / back to
+//                         words; no-op on page 1 and on the quiz's
+//                         right/wrong and summary screens), keeping the
+//                         buttons-mirror-cells rule. drawEntropy() split
+//                         into a shared body + touch variant (nav cells,
+//                         "> or BTN2: verify / < or BTN1: back" hints);
+//                         the non-touch layout, hints, and BTN1 toggle
+//                         are byte-for-byte unchanged. enterVerifyQuiz()
+//                         (v2.4.4) gained the showingEntropy clear --
+//                         it now has a caller inside the hex view.
+//                         Implements issue #15.
+//   2.4.6 (2026-08-31) - First CI (issue #13): .github/workflows/build.yml
+//                         runs the core test suite (tests/run_tests.sh,
+//                         unchanged and self-contained -- ubuntu-latest
+//                         runners ship Docker) and compiles BOTH firmware
+//                         variants on every push and PR, from a pinned
+//                         toolchain: arduino-cli 1.5.1 (the devbox's own
+//                         version, so CI and local builds agree),
+//                         esp32:esp32 3.3.11, TFT_eSPI 2.5.43 (the
+//                         versions README's Build & flash documents as
+//                         tested). The build job compiles from DiceSeed/
+//                         with its output dir OUTSIDE the sketch, per the
+//                         v2.4.1 layout -- compiling from the repo root
+//                         would reproduce the exact stranded-header
+//                         failure that layout fix was cut for (noted in
+//                         the YAML so a future cleanup cannot silently
+//                         regress it). Each variant uploads as a
+//                         sha-named artifact (diceseed-<sha>-compat /
+//                         -classic); on: push also fires for v* tags, so
+//                         future release tags get a verified build and
+//                         artifacts automatically -- attaching binaries
+//                         to Releases is deliberately NOT here (that
+//                         ships with the reproducible-build work, where
+//                         hashes can mean something). No firmware change.
+//   2.4.7 (2026-08-31) - Reproducible builds + AUTOMATED releases
+//                         (ROADMAP item 2, DONE):
+//                         tools/build-firmware.sh builds BOTH variants
+//                         in a throwaway Debian container from a fully
+//                         pinned toolchain -- arduino-cli 1.5.1 (tarball
+//                         SHA-256 verified in-script), esp32:esp32
+//                         3.3.11, TFT_eSPI 2.5.43 -- from a scratch
+//                         copy of the sketch at a fixed path, with fixed
+//                         --build-path + --clean, and SOURCE_DATE_EPOCH
+//                         pinned to the commit timestamp (the ESP-IDF
+//                         app descriptor otherwise embeds __TIME__,
+//                         which made two builds of one commit differ).
+//                         Result, proven across two cold CI runs:
+//                         byte-identical binaries for the same commit.
+//                         CI's build job runs this same script (single
+//                         source of truth; CI artifacts are
+//                         byte-identical to local builds, which is what
+//                         makes published hashes meaningful). Releases
+//                         are now fully automated, not hand-cut: a push
+//                         to main that bumps FIRMWARE_VERSION_BASE past
+//                         the latest v* tag, with its matching
+//                         docs/releases/vX.Y.Z.md present (a bump
+//                         without notes FAILS the job -- no notes, no
+//                         release), gets tagged, built reproducibly,
+//                         and published -- release body from the notes
+//                         file, assets = both .bins + SHA-256SUMS.
+//                         Maintainer's whole process: write notes, bump
+//                         version, merge. A workflow_dispatch dry run
+//                         rehearses detection with no side effects.
+//                         PGP-signing releases remains ROADMAP item 3.
+//                         docs/reproducible-build.md documents the pins,
+//                         usage, and how to verify a released binary.
+//                         No firmware-logic change; ROADMAP item 2
+//                         marked DONE. Also finalized in this version:
+//                         the issue #12 button markers, hardware-
+//                         verified (a Touch board running a forced-
+//                         non-touch test build -- same chassis, same
+//                         button edge): GPIO14/BTN2 is the top-right
+//                         button, GPIO0/BTN1 the bottom-right; the v2.4.3
+//                         y-offset guesses were right, the digits were
+//                         swapped, and only the two BTNMARK constants
+//                         exchanged values.
 
-#define FIRMWARE_VERSION_BASE "2.4.1"
+#define FIRMWARE_VERSION_BASE "2.4.7"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -326,6 +493,24 @@ int csBits = 0;             // 4 or 8
 
 enum Screen { SCR_MENU, SCR_ROLLING, SCR_RESULT, SCR_WIPE_CONFIRM, SCR_RESET_CONFIRM };
 Screen screen = SCR_MENU;
+
+// The touch roll grid's three visual states (v2.4.2). Declared up here,
+// above every function definition, because the Arduino sketch preprocessor
+// hoists generated function prototypes to the top of the translation unit
+// -- a type first declared next to its only user (drawCell, far below)
+// would not exist yet where the prototype lands.
+//   CELL_PLAIN    darkgrey border, white digit -- nothing chosen
+//   CELL_SELECTED double white border, white digit -- "another tap here
+//                 commits this"
+//   CELL_CONFIRM  double green border, green digit -- the momentary flash
+//                 while the roll is being locked in
+// SELECTED used to be green (v2.2.0-v2.4.1), which made the two stages of
+// the two-tap contract look identical and gave the commit itself no
+// feedback at all. Green now means exactly one thing on this screen:
+// "this value just entered rolls[]". (Scope: this language is the roll
+// grid's only -- the menu/quiz cells and the non-touch big digit keep
+// their own established green-on-selection look.)
+enum CellLook { CELL_PLAIN, CELL_SELECTED, CELL_CONFIRM };
 
 // ---- RAM scrubbing -----------------------------------------------------
 // Uses mbedtls_platform_zeroize() instead of memset(): a plain memset on a
@@ -386,8 +571,26 @@ bool showingEntropy = false;    // result-screen sub-view: words vs raw entropy 
 bool btn1WasDown = false;       // result-screen BTN1 edge tracking (independent
 bool btn1PureTap = false;       // of button1Pressed() -- see SCR_RESULT for why
 bool verifying = false;         // result-screen sub-view: backup-verification quiz
-int verifyStep = 0;             // which of the 3 verify checkpoints we're on
-uint8_t verifyWordNums[3];      // 1-based word numbers to spot-check this session
+int verifyStep = 0;             // which verify word we're on (0-based)
+int verifyTotal = 12;           // how many words this quiz covers -- every
+                                // word of the phrase (v2.4.4): 12 or 24,
+                                // set by pickVerifyWords(). Was a fixed 3
+                                // (checkpoint words) through v2.4.3.
+uint8_t verifyWordNums[24];     // 1-based word numbers this quiz asks
+                                // about, in phrase order (v2.4.4 --
+                                // sequential 1..wordCount; was 3
+                                // proportional checkpoints through
+                                // v2.4.3). Widened from [3] to [24];
+                                // stores POSITIONS, never words, so it
+                                // carries no sensitivity.
+uint8_t verifyMisses[24];       // word numbers that were answered wrong
+                                // this pass (v2.4.4) -- for the end-of-
+                                // quiz summary. Like verifyWordNums,
+                                // positions only, not sensitive.
+int verifyMissCount = 0;
+bool verifySummary = false;     // showing the end-of-quiz summary screen
+                                // (v2.4.4); the summary's only action
+                                // (BTN2 or any tap) returns to page 1.
 int verifyChoiceIdx = 0;        // which of the 3 is currently displayed
 int verifyCorrectSlot = 0;      // which slot (0-2) holds the real word
 bool verifyAnswered = false;    // false = picking, true = showing right/wrong
@@ -404,7 +607,7 @@ bool touchNeedsSelect = true;   // "no face has been explicitly chosen yet this
                                 // roll." Cleared by a tap OR by BTN1, since
                                 // both are deliberate choices; set on entry and
                                 // after every commit. Two jobs: the touch grid
-                                // shows no green cell until a real choice is
+                                // shows no lit cell until a real choice is
                                 // made (the post-commit reset to face 1 must
                                 // not look pre-selected), and a tap can only
                                 // commit a face that was actually chosen --
@@ -457,6 +660,45 @@ bool rollBtn1PureTap = false;
 bool rollBtn2WasDown = false;
 bool rollBtn2PurePress = false;
 unsigned long rollBtn2DownAt = 0;
+
+// ---- Button-edge markers, non-touch boards (issue #12) --------------------
+// Every button-driven screen explains the buttons in small text at the
+// bottom-left ("BTN1: toggle   BTN2: select") -- what each button DOES,
+// never which physical button IS "BTN1". On the T-Display S3 the two
+// buttons sit unlabeled on the board edge, so a first-time user has to
+// guess, press, and infer. These markers close that gap: a small "1" and
+// "2" plus an edge tick at the far right of the screen, at the vertical
+// positions of the physical buttons in this rotation (rotation 1,
+// landscape, USB-C left): GPIO14/BTN2 near the top-right corner, GPIO0/
+// BTN1 near the bottom-right.
+//
+// POSITION CAVEAT RESOLVED (v2.4.7): the original v2.4.3 offsets guessed
+// the GPIO0/GPIO14 order inverted. Verified on hardware (a Touch board
+// running a forced-non-touch test build -- same chassis, same button
+// edge): the y positions were right, the digits were swapped, so only
+// the two constants below exchanged values.
+static const int BTNMARK_X    = 310;   // digit column (6px wide at size 1)
+static const int BTNMARK1_Y   = 152;   // GPIO0  / BTN1: bottom-right of the edge
+static const int BTNMARK2_Y   = 10;    // GPIO14 / BTN2: top-right
+
+// No-op on touch boards (their flows are tap-driven and the grid needs
+// the full width, per issue #12) and on the momentary wipe screen (it is
+// never seen long enough to read anything). Called at the end of each
+// button-driven draw; purely additive rendering, no state, no input.
+static void drawButtonMarkers() {
+  if (dstouch::detected()) return;
+  const int ys[2] = { BTNMARK1_Y, BTNMARK2_Y };
+  const char digits[2] = { '1', '2' };
+  tft.setTextSize(1);  // 6x8 px glyph
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);  // hint-text color: it IS a hint
+  for (int i = 0; i < 2; i++) {
+    tft.setCursor(BTNMARK_X, ys[i]);
+    tft.print(digits[i]);
+    // Short tick at the very edge, vertically centered on the digit: reads
+    // as "a thing on the edge pointing at the board", not stray text.
+    tft.drawFastHLine(BTNMARK_X + 7, ys[i] + 4, 3, TFT_DARKGREY);
+  }
+}
 
 // ---- Touch menu cells ------------------------------------------------------
 // Only used when a touch panel is actually present. The button layout in
@@ -566,6 +808,7 @@ void drawMenu() {
   tft.setCursor(200, 155);
   tft.print("v");
   tft.print(FIRMWARE_VERSION);
+  drawButtonMarkers();
 }
 
 // Touch boards only: BTN2 with no count chosen must not start -- the
@@ -629,6 +872,7 @@ static void drawResetConfirm() {
   tft.setCursor(10, 155);
   tft.setTextColor(TFT_RED, TFT_BLACK);
   tft.println("Wipe erases all rolls so far");
+  drawButtonMarkers();
 }
 
 void startRolling() {
@@ -674,18 +918,20 @@ static int faceAtPoint(int x, int y) {
   return 0;
 }
 
-static void drawCell(int face, bool selected) {
+static void drawCell(int face, CellLook look) {
   int x, y;
   cellOrigin(face, x, y);
-  uint16_t border = selected ? TFT_GREEN : TFT_DARKGREY;
-  uint16_t digit  = selected ? TFT_GREEN : TFT_WHITE;
+  uint16_t border = (look == CELL_PLAIN) ? TFT_DARKGREY
+                   : (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
+  uint16_t digit  = (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
 
   tft.fillRoundRect(x, y, CELL_W, CELL_H, 6, TFT_BLACK);
   // The lit border is the "did my tap land, and on what?" feedback. Touch
   // gives no tactile confirmation the way the buttons do, so it has to be
   // visual or it isn't there at all.
   tft.drawRoundRect(x, y, CELL_W, CELL_H, 6, border);
-  if (selected) tft.drawRoundRect(x + 1, y + 1, CELL_W - 2, CELL_H - 2, 5, border);
+  if (look != CELL_PLAIN)
+    tft.drawRoundRect(x + 1, y + 1, CELL_W - 2, CELL_H - 2, 5, border);
 
   tft.setTextSize(4);                       // 24x32 px glyph
   tft.setTextColor(digit, TFT_BLACK);
@@ -715,11 +961,13 @@ static void drawRollingTouch() {
   tft.printf("Roll %d / %d", currentRollIndex + 1, rollsNeeded);
 
   // Nothing is shown as selected until a tap has actually landed: on entry
-  // every cell is plain white, and the green cell means "this is what a second
-  // tap will commit". Showing the post-commit reset value as pre-selected
-  // would be claiming a choice the user has not made yet.
+  // every cell is plain (grey border), and the white-outlined cell means
+  // "this is what a second tap will commit". Showing the post-commit
+  // reset value as pre-selected would be claiming a choice the user has
+  // not made yet.
   for (int face = 1; face <= 6; face++)
-    drawCell(face, !touchNeedsSelect && face == currentFace);
+    drawCell(face, (!touchNeedsSelect && face == currentFace) ? CELL_SELECTED
+                                                              : CELL_PLAIN);
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
@@ -752,6 +1000,7 @@ void drawRolling() {
   tft.println("BTN1: change value   BTN2 tap: confirm");
   tft.setCursor(10, 155);
   tft.println("BTN2 hold: back to previous roll");
+  drawButtonMarkers();
 }
 
 // ---- Result-screen page navigation (touch only, v2.3.3) ---------------
@@ -823,32 +1072,39 @@ void drawResult() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 130);
-  if ((resultPage + 1) < totalPages) {
-    tft.println("BTN2 tap: next page");
+  if (dstouch::detected()) {
+    // Touch (v2.4.5): BTN1 mirrors < and BTN2 mirrors >, and > on the
+    // last page opens the hex screen (the flow stop before the quiz),
+    // not the quiz itself.
+    tft.println((resultPage + 1) < totalPages
+                    ? "BTN2 or >: next page"
+                    : "BTN2 or >: raw entropy (hex)");
+    tft.setCursor(10, 142);
+    tft.println("BTN1 or <: back a page");
   } else {
-    tft.println("BTN2 tap: verify backup");
+    tft.println((resultPage + 1) < totalPages
+                    ? "BTN2 tap: next page"
+                    : "BTN2 tap: verify backup");
+    tft.setCursor(10, 142);
+    tft.println("BTN1 tap: show raw entropy (hex)");
   }
-  tft.setCursor(10, 142);
-  tft.println("BTN1 tap: show raw entropy (hex)");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
-// Fills verifyWordNums with 3 checkpoint word numbers (1-based), spread
-// roughly beginning/middle/end regardless of word count, so the check
-// works the same shape whether the mnemonic is 12 or 24 words. Fixed
-// absolute numbers like "3, 8, 12" only make sense for one word count;
-// these are proportional (~25%/60%/90%) and rounded to the nearest word
-// with integer math (n*pct+50)/100, which matches round-to-nearest --
-// e.g. 12 words -> 3, 7, 11; 24 words -> 6, 14, 22.
+// Fills verifyWordNums with EVERY word number of the phrase, in order
+// (v2.4.4): the backup quiz now checks all 12 or all 24 words rather
+// than 3 proportional checkpoints (v2.1.0-v2.4.3). The checkpoint design
+// sampled beginning/middle/end to catch skips and run-ons quickly, but
+// could not catch an error on any unchecked position -- and a single
+// wrong word in an unchecked slot is an unrecoverable-by-memory backup
+// years later. Full verification costs a few minutes; that is the point
+// (issue #14's maintainer decision: replace, not opt in). Also sets
+// verifyTotal, which every quiz exit comparison consults.
 void pickVerifyWords() {
-  const int pct[3] = { 25, 60, 90 };
-  for (int i = 0; i < 3; i++) {
-    int n = (wordCount * pct[i] + 50) / 100;
-    if (n < 1) n = 1;
-    if (n > wordCount) n = wordCount;
-    verifyWordNums[i] = (uint8_t)n;
-  }
+  verifyTotal = wordCount;
+  for (int i = 0; i < wordCount; i++) verifyWordNums[i] = (uint8_t)(i + 1);
 }
 
 // Fills out[0]/out[1] with two DECOY word indices into BIP39_WORDS --
@@ -952,7 +1208,9 @@ static void drawVerifyPickingTouch() {
   tft.setCursor(10, 5);
   tft.print("Verify backup (");
   tft.print(verifyStep + 1);
-  tft.print("/3)");
+  tft.print("/");
+  tft.print(verifyTotal);
+  tft.print(")");
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(10, 26);
   tft.print("Word #");
@@ -985,7 +1243,9 @@ void drawVerifyPicking() {
   tft.setCursor(10, 5);
   tft.print("Verify backup (");
   tft.print(verifyStep + 1);
-  tft.print("/3)");
+  tft.print("/");
+  tft.print(verifyTotal);
+  tft.print(")");
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(10, 35);
   tft.print("Word #");
@@ -1003,6 +1263,7 @@ void drawVerifyPicking() {
   tft.println("BTN1: cycle choices   BTN2: select this one");
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
 void drawVerifyResult() {
@@ -1025,20 +1286,119 @@ void drawVerifyResult() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 142);
-  tft.println(verifyStep + 1 < 3
-                  ? (dstouch::detected() ? "Tap or BTN2: next check" : "BTN2 tap: next check")
-                  : (dstouch::detected() ? "Tap or BTN2: back to word list" : "BTN2 tap: back to word list"));
+  tft.println(verifyStep + 1 < verifyTotal
+                  ? (dstouch::detected() ? "Tap or BTN2: next word" : "BTN2 tap: next word")
+                  : (dstouch::detected() ? "Tap or BTN2: summary" : "BTN2 tap: summary"));
   tft.setCursor(10, 155);
   tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
+}
+
+// End-of-quiz summary (v2.4.4): with every word now checked, the pass
+// deserves a verdict that says what it verified -- and, on failure, names
+// every missed position so the paper copy can be corrected against the
+// word list instead of re-quizzing blind. Word NUMBERS only here: no
+// mnemonic word is ever re-displayed by the summary.
+void drawVerifySummary() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 5);
+  if (verifyMissCount == 0) {
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.print("All ");
+    tft.print(verifyTotal);
+    tft.println(" words verified.");
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(10, 35);
+    tft.println("Your backup matches");
+    tft.println("this seed.");
+  } else {
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.print(verifyMissCount);
+    tft.print(verifyMissCount == 1 ? " word did" : " words did");
+    tft.println(" not match:");
+    // List the missed positions, wrapping at the screen edge ("#7, #19, "
+    // at size 1 = 6px/char; worst case 24 misses -> at most 3 lines).
+    // print() streams -- no String/printf, same discipline as everywhere
+    // else this file renders.
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(1);
+    int x = 10, y = 40;
+    for (int i = 0; i < verifyMissCount; i++) {
+      int w = 1 + ((verifyMisses[i] >= 10) ? 2 : 1);  // "#" + digits
+      if (i + 1 < verifyMissCount) w += 1;            // room for the comma
+      if (x + 6 * w > 310) { x = 10; y += 14; }
+      tft.setCursor(x, y);
+      tft.print("#");
+      tft.print(verifyMisses[i]);
+      if (i + 1 < verifyMissCount) tft.print(",");
+      x += 6 * w + 6;
+    }
+    tft.setTextSize(2);
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(10, 100);
+    tft.println("Re-check those words");
+    tft.println("against the word list.");
+  }
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 142);
+  tft.println(dstouch::detected() ? "Tap or BTN2: back to word list"
+                                  : "BTN2 tap: back to word list");
+  tft.setCursor(10, 155);
+  tft.println("Hold BOTH buttons 2s: WIPE + reset");
+  drawButtonMarkers();
 }
 
 // Locks in the currently-displayed/chosen candidate. Extracted (v2.3.3)
 // from the BTN2 handler so the touch path commits through exactly the
 // same code -- same single-source reasoning as confirmCurrentRoll (v2.2.0).
+// v2.4.4: also records misses for the end-of-quiz summary.
 void lockInVerifyChoice() {
   verifyAnswered = true;
   verifyWasCorrect = (verifyChoiceIdx == verifyCorrectSlot);
+  if (!verifyWasCorrect) verifyMisses[verifyMissCount++] = verifyWordNums[verifyStep];
   drawVerifyResult();
+}
+
+// Enters the backup-verification quiz. Extracted (v2.4.4) from its two
+// call sites (touch `>` cell, BTN2) so the quiz state -- including the
+// v2.4.4 miss list -- is initialized in exactly one place; a re-quiz
+// after a finished pass starts with clean misses. v2.4.5 adds the third
+// call site (the hex screen's forward action, touch boards) and with it
+// the showingEntropy clear: on touch the quiz is now entered from the
+// entropy view, and "verifying implies !showingEntropy" must hold or the
+// tap handler would keep routing quiz taps to the hex screen's nav.
+void enterVerifyQuiz() {
+  verifying = true;
+  showingEntropy = false;
+  verifyStep = 0;
+  verifyMissCount = 0;
+  verifySummary = false;
+  startVerifyStep();
+}
+
+// Advances past a right/wrong screen: to the next word, or (v2.4.4) to
+// the summary once every word has been asked. Shared by the tap-anywhere
+// path and the BTN2 path so both advance identically -- the same
+// single-source discipline as lockInVerifyChoice.
+void advanceVerifyStep() {
+  verifyStep++;
+  if (verifyStep >= verifyTotal) {
+    verifySummary = true;
+    drawVerifySummary();
+  } else {
+    startVerifyStep();
+  }
+}
+
+// Leaves the quiz from the summary screen (v2.4.4): back to page 1 of
+// the word list -- the same exit the quiz always had, one screen later.
+void finishVerifyQuiz() {
+  verifying = false;
+  verifySummary = false;
+  resultPage = 0;
+  drawResult();
 }
 
 // One nibble at a time via a constant lookup table, never a formatted
@@ -1052,8 +1412,11 @@ void printHexByte(uint8_t b) {
   tft.print(hexDigits[b & 0xF]);
 }
 
-void drawEntropy() {
-  tft.fillScreen(TFT_BLACK);
+// Title + hex rows + the red sensitivity warning -- everything common to
+// the touch and non-touch variants of this view (v2.4.5 split).
+// printHexByte streams one nibble at a time, so no formatted copy of the
+// entropy ever exists while rendering.
+static void drawEntropyBody() {
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(2);
   tft.setCursor(10, 5);
@@ -1071,11 +1434,40 @@ void drawEntropy() {
   tft.setTextColor(TFT_RED, TFT_BLACK);
   tft.setCursor(10, 130);
   tft.println("As sensitive as the mnemonic itself.");
+}
+
+// Touch variant (v2.4.5): the raw-entropy view is a FLOW STOP between the
+// last word page and the backup quiz -- showing it is part of the path,
+// not an optional toggle, so the cross-check moment is guaranteed before
+// verification starts. The same far-right < > nav stack as the word
+// pages: < returns to the words (reversible, single-tap), > continues
+// into the quiz; BTN1 mirrors < and BTN2 mirrors >, per the
+// buttons-mirror-cells rule. Hex lines (16 chars x 12px) and the warning
+// text (36 chars x 6px = ~226px) never reach the x=264 nav column.
+static void drawEntropyTouch() {
+  tft.fillScreen(TFT_BLACK);
+  drawEntropyBody();
+  drawPageNavCells();
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 142);
+  tft.println("Paste into a BIP39 tool's Hex field.");
+  tft.setCursor(10, 155);
+  tft.println("> or BTN2: verify   < or BTN1: back");
+}
+
+void drawEntropy() {
+  // Non-touch: unchanged layout and hints -- BTN1 still toggles here
+  // from the word pages, as it has since v2.0.0.
+  if (dstouch::detected()) { drawEntropyTouch(); return; }
+
+  tft.fillScreen(TFT_BLACK);
+  drawEntropyBody();
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 142);
   tft.println("Paste into a BIP39 tool's Hex field.");
   tft.setCursor(10, 155);
   tft.println("BTN1 tap: back to words");
+  drawButtonMarkers();
 }
 
 void drawWipeConfirm() {
@@ -1140,6 +1532,19 @@ void goBackOneRoll() {
 // duplicating the entropy-derivation block for a second caller would be the
 // real risk here.
 void confirmCurrentRoll() {
+  // Touch boards: the confirm flash (v2.4.2). Before advancing, the chosen
+  // cell blinks green for a beat -- the "locked in" signal -- so the commit
+  // itself finally has feedback instead of the white-outlined cell silently
+  // vanishing into the next roll's redraw. Both commit paths (second tap on
+  // the selected cell, BTN2 short press) land here, so both flash
+  // identically. A blocking delay is fine in this path: it is not
+  // time-critical (it ends in a full redraw anyway) and matches the
+  // existing debounce-delay pattern; it also leaks nothing (no Serial, no
+  // radio), so the security model is untouched.
+  if (dstouch::detected()) {
+    drawCell(currentFace, CELL_CONFIRM);
+    delay(250);
+  }
   touchNeedsSelect = true;  // the only line added to the extracted body
   rolls[currentRollIndex] = currentFace;
   currentRollIndex++;
@@ -1167,6 +1572,8 @@ void confirmCurrentRoll() {
     btn1PureTap = false;
     verifying = false;
     verifyStep = 0;
+    verifyMissCount = 0;   // v2.4.4: clean slate for the next session's quiz
+    verifySummary = false;
     pickVerifyWords();
     screen = SCR_RESULT;
     drawResult();
@@ -1408,7 +1815,23 @@ void loop() {
             verifyChoiceIdx = (verifyChoiceIdx + 1) % 3;
           }
           drawVerifyPicking();
+        } else if (dstouch::detected()) {
+          // Touch (v2.4.5): the hex view is flow-only -- no BTN1 toggle.
+          // BTN1 mirrors the < cell instead: back to the words from the
+          // hex screen, back a page on the word pages (no-op on page 1),
+          // and no-op on the quiz's right/wrong and summary screens,
+          // where advancing is BTN2/tap's single action.
+          if (showingEntropy) {
+            showingEntropy = false;
+            drawResult();
+          } else if (!verifying && resultPage > 0) {
+            resultPage--;
+            drawResult();
+          }
         } else {
+          // Non-touch: unchanged -- BTN1 opens/leaves the raw-entropy
+          // view (and cancels an in-progress quiz or leaves the summary,
+          // since this only fires outside picking).
           verifying = false; // leaving the verify quiz if we were mid-pass
           showingEntropy = !showingEntropy;
           showingEntropy ? drawEntropy() : drawResult();
@@ -1417,16 +1840,28 @@ void loop() {
       btn1WasDown = b1;
 
       // Touch input on this screen (v2.3.3): quiz cells while picking,
-      // < > page-nav cells on the word pages, and any tap advances the
-      // right/wrong screen (advancing is its only action); the entropy
-      // view takes no taps. Quiz cells use the two-tap rule (a wrong
-      // pick is a wrong verification); page nav is single-tap --
-      // instantly reversible, and the page redraw is its own feedback,
-      // so the two-tap rule stays reserved for consequential commits.
-      if (dstouch::detected() && !showingEntropy) {
+      // < > page-nav cells on the word pages and (v2.4.5) on the hex
+      // screen, and any tap advances the right/wrong and summary screens
+      // (advancing is their only action). Quiz cells use the two-tap
+      // rule (a wrong pick is a wrong verification); page nav is
+      // single-tap -- instantly reversible, and the page redraw is its
+      // own feedback, so the two-tap rule stays reserved for
+      // consequential commits.
+      if (dstouch::detected()) {
         int tx, ty;
         if (dstouch::tapped(tx, ty)) {
-          if (picking) {
+          if (showingEntropy) {
+            // The hex flow stop (v2.4.5): the same far-right stack as
+            // the word pages. < returns to the words; > continues the
+            // flow into the backup quiz. Misses are ignored, as everywhere.
+            int nav = pageNavAtPoint(tx, ty);
+            if (nav == 0) {
+              showingEntropy = false;
+              drawResult();
+            } else if (nav == 1) {
+              enterVerifyQuiz();
+            }
+          } else if (picking) {
             int s = verifyCellAtPoint(tx, ty);
             if (s >= 0) {
               if (verifyNeedsSelect || s != verifyChoiceIdx) {
@@ -1451,30 +1886,33 @@ void loop() {
                 resultPage++;
                 drawResult();
               } else {
-                // Same as BTN2 on the last page: enter the quiz.
-                verifying = true;
-                verifyStep = 0;
-                startVerifyStep();
+                // Last page (v2.4.5): the flow's next stop is the hex
+                // screen, not the quiz -- the entropy view gets a
+                // guaranteed visit before verification starts. Same as
+                // BTN2 here.
+                showingEntropy = true;
+                drawEntropy();
               }
             }
           } else {
             // Right/wrong screen (verifying && verifyAnswered): the whole
-            // screen is the tap target -- same advance BTN2 performs.
-            verifyStep++;
-            if (verifyStep >= 3) {
-              verifying = false;
-              resultPage = 0;
-              drawResult();
-            } else {
-              startVerifyStep();
-            }
+            // screen is the tap target -- same advance BTN2 performs. The
+            // summary screen (v2.4.4) behaves the same way: its only
+            // action is leaving, back to the word list.
+            if (verifySummary) finishVerifyQuiz();
+            else advanceVerifyStep();
           }
         }
       }
 
       int ev = button2Event();
-      if (ev == 1 && !showingEntropy) {
-        if (verifying && !verifyAnswered) {
+      if (ev == 1) {
+        if (showingEntropy) {
+          // On the hex screen (v2.4.5) BTN2 mirrors its > cell: forward
+          // into the quiz. Non-touch keeps the entropy view BTN1-only,
+          // exactly as before -- BTN2 there stays inert on this view.
+          if (dstouch::detected()) enterVerifyQuiz();
+        } else if (verifying && !verifyAnswered) {
           // Touch boards: nothing is pre-lit, so committing with no
           // selection would lock in an invisible default -- the exact
           // flaw the commit gates remove everywhere else. Refuse with
@@ -1490,16 +1928,10 @@ void loop() {
             lockInVerifyChoice();
           }
         } else if (verifying) {
-          // Already showed right/wrong -- move to the next checkpoint,
-          // or finish the quiz and return to the word list.
-          verifyStep++;
-          if (verifyStep >= 3) {
-            verifying = false;
-            resultPage = 0;
-            drawResult();
-          } else {
-            startVerifyStep();
-          }
+          // Already showed right/wrong (or the summary) -- move to the
+          // next word, or finish via the summary back to the word list.
+          if (verifySummary) finishVerifyQuiz();
+          else advanceVerifyStep();
         } else {
           int perPage = 4;
           int totalPages = (wordCount + perPage - 1) / perPage;
@@ -1507,11 +1939,16 @@ void loop() {
             resultPage++;
             drawResult();
           } else {
-            // Last word page -- verify before wrapping back to page 1,
-            // instead of just wrapping straight away.
-            verifying = true;
-            verifyStep = 0;
-            startVerifyStep();
+            // Last word page -- verify before wrapping back to page 1.
+            // On touch (v2.4.5) BTN2 mirrors the > cell: forward is the
+            // hex flow stop, and the quiz starts from there. Non-touch
+            // enters the quiz directly, as it always has.
+            if (dstouch::detected()) {
+              showingEntropy = true;
+              drawEntropy();
+            } else {
+              enterVerifyQuiz();
+            }
           }
         }
       }

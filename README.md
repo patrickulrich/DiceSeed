@@ -53,6 +53,13 @@ other — see [Build variants](#build-variants).
 - LilyGO T-Display S3 — **either the plain or the Touch version**. Uses the
   board's ST7789 display (170×320, 8-bit parallel bus) and its two built-in
   buttons (GPIO0, GPIO14).
+- **Which button is which?** On a non-Touch board, every button-driven
+  screen carries small `1`/`2` markers plus an edge tick at the far right
+  of the display, aligned with the physical buttons on the board edge
+  (BTN1 = GPIO0 near the top-right, BTN2 = GPIO14 near the bottom-right) —
+  so the "BTN1: … BTN2: …" hint lines map to the hardware in your hand
+  without guessing. Touch boards don't draw these (their flows are
+  tap-driven).
 - **One firmware serves both boards.** On boot it probes for a capacitive
   touch controller; if one answers, the roll-entry screen adds a tap grid. If
   not, everything behaves exactly as it always has. The buttons work on every
@@ -147,7 +154,10 @@ is the fix.)
    options don't matter either way.
 
 The same thing with `arduino-cli`, run from inside the `DiceSeed/` sketch
-folder (`cd DiceSeed` from the repo root):
+folder (`cd DiceSeed` from the repo root). Prefer a build that matches the
+published release binaries byte-for-byte? `tools/build-firmware.sh` builds
+both variants reproducibly in Docker from a pinned toolchain — see
+[Reproducible builds](docs/reproducible-build.md) (v2.4.7).
 
 ```sh
 # one-time setup
@@ -198,31 +208,44 @@ though nothing about it is visible from a successful build log.
    hold both buttons for 2 seconds on the roll screen: a confirm screen
    offers Cancel (every entered roll kept) or Wipe & return to the menu
    (RAM scrubbed, device reboots).
-3. After the last roll, the mnemonic is shown, four words per screen
-   (button 2: next page; **on a Touch board** the `<`/`>` cells at the
-   right edge page back and forward — `<` is ignored on page 1, and `>`
-   on the last page starts the backup check). A red warning appears if
-   every single roll came
-   back identical — a sanity check, not a hard stop.
-4. After the last word page, button 2 leads into a **3-step backup quiz**
-   instead of wrapping back to page 1, spot-checking word #3, #7, and #11
-   (12-word) or #6, #14, and #22 (24-word) — spread roughly
-   beginning/middle/end of the phrase. Each check presents the 3
-   candidates (the real word plus 2 decoys) — one at a time on button
-   boards, or as three tap cells on a Touch board (tap one to light it,
-   tap it again to lock in); cycle with button 1, lock in your pick with
-   button 2, and it tells you right/wrong; button 2 — or, on a Touch
-   board, any tap — moves to the next checkpoint. This is a genuine
-   blind pick, not a "here's the answer, compare it yourself" re-display —
-   it's meant to catch "I misread the word and wrote down the wrong one
-   confidently," not just "did I copy it correctly," which is the more
-   common and more serious way a written-down backup actually goes wrong.
-   After the 3rd checkpoint it returns to page 1.
-5. **Button 1** on the result screen (word pages, or between quiz
-   checkpoints once you've locked in an answer)
-   toggles to a **raw entropy (hex)** view —
-   the intermediate bytes your rolls produced, before the BIP39 checksum
-   and word lookup. Paste that hex into any BIP39 tool's raw entropy field
+ 3. After the last roll, the mnemonic is shown, four words per screen
+    (button 2: next page; **on a Touch board** the `<`/`>` cells at the
+    right edge page back and forward — `<` is ignored on page 1, and `>`
+    on the last page opens the **raw-entropy hex screen** below). A red
+    warning appears if
+    every single roll came
+    back identical — a sanity check, not a hard stop.
+ 4. Next comes the **backup quiz that checks every word** — all 12 or all
+    24, one at a time (through v2.4.3
+    it spot-checked 3 checkpoint words; v2.4.4 removed the blind spots).
+    **On a Touch board** the quiz starts from the hex screen: `>` (or
+    button 2) there begins verification, `<` goes back to the words; on
+    button boards button 2 on the last word page enters the quiz
+    directly.
+    Each check presents the 3 candidates (the real word plus 2 decoys) —
+    one at a time on button
+    boards, or as three tap cells on a Touch board (tap one to light it,
+    tap it again to lock in); cycle with button 1, lock in your pick with
+    button 2, and it tells you right/wrong; button 2 — or, on a Touch
+    board, any tap — moves to the
+    next word. This is a genuine blind pick, not a "here's the answer,
+    compare it yourself" re-display — it's meant to catch "I misread the
+    word the first time and wrote down the wrong one confidently," not
+    just "did I copy it correctly," which is the more common and more
+    serious way a written-down backup actually goes wrong. After the last
+    word a summary screen reports **"All 12/24 words verified. Your
+    backup matches this seed."** — or lists every word number that did
+    not match, so you can correct exactly those against the word list —
+    then returns to page 1.
+ 5. **Button 1** on the result screen (word pages, or between quiz
+    checkpoints once you've locked in an answer)
+    toggles to a **raw entropy (hex)** view —
+    the intermediate bytes your rolls produced, before the BIP39 checksum
+    and word lookup. **On a Touch board** (v2.4.5) the hex view instead
+    sits in the flow — `>` on the last word page shows it before the quiz
+    — and button 1 mirrors the `<` cell (back a page) rather than
+    toggling it.
+    Paste that hex into any BIP39 tool's raw entropy field
    (iancoleman.io: the **Hex [0-9A-F]** option, not its Dice mode — see
    [Cross-checking your output](#cross-checking-your-output)) to
    independently confirm the mnemonic, regardless of which build produced
@@ -238,7 +261,8 @@ On a **T-Display S3 Touch** board the word-count menu, the roll-entry
 screen, the leave-rolling confirm screen, and the result screen are
 touch-operable: the 12/24 counts, the six dice faces, the roll screen's
 `<` back cell, the cancel/wipe cells, the word-page `<`/`>` paging cells,
-and the quiz's candidate words draw as tap cells (the back and paging
+the hex screen's `<`/`>` cells (v2.4.5), and the quiz's candidate words
+draw as tap cells (the back and paging
 cells are single-tap — instantly reversible; everything that commits a
 choice keeps the two-tap rule).
 Nothing requires touch, and the buttons work identically on every screen
@@ -248,13 +272,17 @@ either way. Touch is additive, never required.
   tap the same count again to start**. No cell starts pre-lit, and until a
   count is chosen BTN2 refuses to start (red hint) instead of committing
   an invisible default.
-- **First tap selects** a face and turns its cell green. **A second tap on that
-  same cell commits** the roll. It is deliberately not commit-on-first-tap: a
+- **First tap selects** a face and outlines its cell in bold white (a
+  double white border). **A second tap on that same cell commits** the
+  roll — the cell flashes green for a beat as it locks in, then the screen
+  advances. It is deliberately not commit-on-first-tap: a
   mis-tap would otherwise write a wrong roll with no warning, and on this
   device a wrong roll is a wrong seed.
-- Until you choose, every cell is plain white. The green cell always means
-  "another tap here commits this." After a commit the grid returns to all
-  white rather than pre-selecting a value you did not pick.
+- Until you choose, every cell is plain (grey border, white digit). The
+  white-outlined cell always means "another tap here commits this"; green
+  on this screen is only ever the momentary confirm flash. After a commit
+  the grid returns to all-plain rather than pre-selecting a value you did
+  not pick.
 - **The buttons still work**, and work identically, including on a Touch
   board — cycling with button 1 lights the matching cell. Mix the two freely.
 - Taps landing in the gaps between cells are ignored rather than snapped to the
@@ -361,6 +389,32 @@ in this repo.
 
 Run `tests/run_tests.sh` after touching `diceseed_core.h`, `bip39_wordlist.h`,
 or `tests/vectors.h`.
+
+### CI
+
+`.github/workflows/build.yml` (v2.4.6) runs that same test suite and
+builds **both firmware variants** on every push and PR — via
+`tools/build-firmware.sh` (v2.4.7), the same pinned, Docker-based,
+**reproducible** path a local build uses (`arduino-cli` 1.5.1,
+`esp32:esp32` 3.3.11, `TFT_eSPI` 2.5.43 — the versions above, documented
+as tested, so a green checkmark certifies a build of what's described,
+not of whatever the package index shipped that morning). Every run
+uploads both `.bin`s + their `SHA-256SUMS` as an artifact. No flashing,
+no hardware in CI — anything touching a real board stays manual, as
+always. See [Reproducible builds](docs/reproducible-build.md) for
+verifying a released binary against the source.
+
+### Releases
+
+Releases are **automated** (v2.4.7): merging to `main` a commit that
+bumps `FIRMWARE_VERSION_BASE` past the latest `v*` tag — with its
+matching `docs/releases/vX.Y.Z.md` present — makes CI tag the merged
+commit, build both variants reproducibly, create the GitHub Release with
+the notes file as its body, and attach both `.bin`s + `SHA-256SUMS`. The
+whole human process is: *write the notes, bump the version, merge*. A
+bump without its notes file fails the job loudly — no notes, no release.
+A `workflow_dispatch` dry run rehearses the detection on any branch with
+no side effects.
 
 ## Cross-checking your output
 
