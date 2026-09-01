@@ -65,7 +65,18 @@ polish.
 - Publish the SHA-256 of each release `.bin` in the release notes and in
   the repo.
 
-## 3. Signed releases
+## 3. Signed releases — SHIPPED AS AN OPT-IN CAPABILITY (2026-08-31, v2.4.8)
+
+The release pipeline (v2.4.8) carries the signing machinery: with a
+`SIGNING_KEY` secret in the `release` environment, every release gets a
+detached PGP signature over `SHA-256SUMS` and a signed annotated tag;
+without one — the default on this fork and any fresh clone — releases
+publish unsigned with hashes only, unchanged. Enabling it is three steps
+and zero code changes, documented in `docs/signing.md`. This repo
+deliberately runs unsigned (no maintainer key published); the lead
+maintainer can adopt it by providing a key and publishing the
+fingerprint out-of-band. The original motivation and plan are kept
+below.
 
 **Plan:** PGP-sign git tags and release artifacts; publish the signing-key
 fingerprint in the README and out-of-band (the BTC group's own channels).

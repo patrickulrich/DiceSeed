@@ -65,6 +65,15 @@ Output, in the output dir:
 - `diceseed-<label>-classic.bin` — the hand-auditable bignum build
 - `SHA-256SUMS` — SHA-256 of both, exactly as computed at build time
 
+Since v2.4.8 each `.bin` is a **complete image** — bootloader + partition
+table + application — flashed at `0x0`, the same command for a new board
+and an update. The core generates the merged image padded to the full
+16MB flash; the script trims the trailing `0xFF` filler (the erased
+state), leaving a ~450KB artifact that writes identically for every
+region it covers. The bare app-only image (`DiceSeed.ino.bin`) remains
+in the build dir inside the container for anyone who specifically wants
+one.
+
 ## Verifying a release binary
 
 1. Download the `.bin` and `SHA-256SUMS` attached to the release (the
@@ -84,10 +93,12 @@ Output, in the output dir:
   For an offline seed device, build on a machine you trust, and use the
   CI-published hashes as an independent cross-check (two different
   machines agreeing is meaningfully stronger than one).
-- **PGP signatures are deliberately not here.** Hashes let you confirm
-  *what* was built; signatures let you confirm *who* published it. The
-  latter is ROADMAP item 3, designed once with the release process
-  rather than bolted on.
+- **Hashes confirm *what*; signatures confirm *who*.** The pipeline
+  supports PGP-signed releases (`SHA-256SUMS.sig` + signed annotated
+  tags) wherever a maintainer has configured a signing key in the `release`
+  environment — see [signing.md](signing.md). Repos without a key
+  publish unsigned releases; the hash check and this reproducible
+  rebuild are the guarantees that remain.
 - **Upstream availability.** The script downloads pinned versions from
   `downloads.arduino.cc` and the Espressif/Arduino library indexes at
   build time; those artifacts are version-addressed (the same version
