@@ -21,8 +21,9 @@ LABEL="${2:-$(git rev-parse --short HEAD 2>/dev/null || echo untagged)}"
 # ---- Toolchain pins --------------------------------------------------------
 # arduino-cli's own tarball is the one download verified by hash rather
 # than by HTTPS alone -- it is the tool that decides what everything
-# else is. The platform/library versions are the same ones README's
-# "Build & flash" documents as tested on hardware.
+# else is. The platform/library versions are the same ones
+# docs/building.md ("Hardware-verified versions") documents as tested
+# on hardware.
 ARDUINO_CLI_VERSION=1.5.1
 ARDUINO_CLI_SHA256=28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b
 ESP32_CORE_VERSION=3.3.11

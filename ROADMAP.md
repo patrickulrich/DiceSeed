@@ -44,7 +44,8 @@ only ever decided which one shipped.
 Shipped in v2.4.7 as `tools/build-firmware.sh` + `docs/reproducible-build.md`:
 both variants built in a throwaway Debian container from a pinned toolchain
 (arduino-cli 1.5.1 with its tarball SHA-256 verified in-script, esp32 core
-3.3.11, TFT_eSPI 2.5.43 — the same versions the README documents as tested),
+3.3.11, TFT_eSPI 2.5.43 — the same versions docs/building.md documents as
+tested),
 with CI running the identical script so CI artifacts are byte-identical to
 local builds. Releases are automated end-to-end: a version-bump merge to
 `main` (gated on its `docs/releases/vX.Y.Z.md` notes file) is tagged, built,
