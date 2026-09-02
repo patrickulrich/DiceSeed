@@ -479,8 +479,51 @@
 //                         now "Building from source", the development
 //                         path. Hardware-verification record extended
 //                         through v2.4.7.
+//   2.4.9 (2026-09-02) - The security model made visible on the device
+//                         (issue #11), aligned with SeedSigner's warning
+//                         conventions; plus one selection language
+//                         everywhere. NEW two-tier caution grammar:
+//                         yellow = advisory, orange = dire (SeedSigner's
+//                         WARNING_COLOR / DIRE_WARNING_COLOR roles;
+//                         red stays reserved for failures). (1) A pre-
+//                         display gate (SCR_WARN_GATE) between the last
+//                         roll and the words, once per generation by
+//                         construction (it is the result screen's only
+//                         entry): orange border + "Classified Info!" in
+//                         the standard title line + SeedSigner's own
+//                         body text ("You must keep your seed words
+//                         private & away from all online devices.")
+//                         plus DiceSeed's "No USB cable should be
+//                         attached."; Touch boards dismiss via a hit-
+//                         tested "I understand" button (single-tap,
+//                         misses ignored), non-touch via BTN2; wipe
+//                         hold works; no re-entry from the result
+//                         screen (SeedSigner's no-BACK rule). (2) Word pages carry the orange border
+//                         their entire duration (SeedSigner's warning-
+//                         edges convention). (3) Roll entry shows a
+//                         yellow "USB cable disconnected? Roll on
+//                         battery power." banner on BOTH board variants
+//                         (touch hints re-stacked 3 lines at 10px pitch;
+//                         non-touch BTN hints merged to one line);
+//                         VBUS-detection conditional stays out of scope
+//                         (hardware-unverified, as the issue notes). (4)
+//                         Entropy screen: yellow "Privacy Leak: this IS
+//                         your private key." headline + "Never photo-
+//                         graph or type into an online device." --
+//                         replacing the softer red line. (5) A wrong
+//                         quiz answer draws the "Not quite" screen with
+//                         a red border (the v2.4.4 summary already
+//                         lists the misses). CELL LANGUAGE: drawMenuCell
+//                         (12/24 menu + leave-rolling Cancel/Wipe) and
+//                         drawVerifyCell (quiz candidates) adopt the
+//                         roll grid's three-state look -- white when
+//                         armed, green only for the momentary commit
+//                         flash (flashMenuCellCommit /
+//                         flashResetCellCommit / lockInVerifyChoice, all
+//                         touch-gated 250ms). Non-touch screens
+//                         unchanged. Implements issue #11.
 
-#define FIRMWARE_VERSION_BASE "2.4.8"
+#define FIRMWARE_VERSION_BASE "2.4.9"
 
 #include "build_mode.h"
 #include "tft_setup.h" // must precede <TFT_eSPI.h> -- see that file for why
@@ -521,7 +564,7 @@ int rollsNeeded = 0;        // 50 or 99
 int entBytes = 0;           // 16 or 32
 int csBits = 0;             // 4 or 8
 
-enum Screen { SCR_MENU, SCR_ROLLING, SCR_RESULT, SCR_WIPE_CONFIRM, SCR_RESET_CONFIRM };
+enum Screen { SCR_MENU, SCR_ROLLING, SCR_WARN_GATE, SCR_RESULT, SCR_WIPE_CONFIRM, SCR_RESET_CONFIRM };
 Screen screen = SCR_MENU;
 
 // The touch roll grid's three visual states (v2.4.2). Declared up here,
@@ -560,6 +603,12 @@ void scrubSensitiveRAM() {
   // same treatment for the same reason: one of its 3 slots is a real
   // mnemonic word, not just a decoy.
 }
+
+// ---- Display geometry (landscape, setRotation(1)) --------------------------
+// Centralized here (v2.4.9) for the full-screen warning borders; every
+// earlier layout constant stays where it was declared.
+static const int SCREEN_W = 320;
+static const int SCREEN_H = 170;
 
 // ---- Buttons (active LOW, simple debounce) ---------------------------------
 bool button1Pressed() {
@@ -761,25 +810,58 @@ static int menuCellAtPoint(int x, int y) {
 // border is the "did my tap land, and on what?" feedback. Shared by the
 // word-count menu and the leave-rolling confirm (same geometry, so
 // menuCellAtPoint serves both).
-static void drawMenuCell(int choice, const char* line1, const char* line2, bool selected) {
+// v2.4.9: the menu/confirm cells adopt the roll grid's three-state look
+// (v2.4.2): PLAIN = grey border + white line 1, SELECTED = double white
+// border + white line 1 ("another tap here commits this"), CONFIRM =
+// double green border + green text (the momentary lock-in flash). Green
+// selection used to live here permanently; now green only ever means
+// "committed", firmware-wide. Line 2 subtext stays grey in every state --
+// the border is the bolding.
+static void drawMenuCell(int choice, const char* line1, const char* line2, CellLook look) {
   int x, y;
   menuCellOrigin(choice, x, y);
-  uint16_t border = selected ? TFT_GREEN : TFT_DARKGREY;
+  uint16_t border = (look == CELL_PLAIN) ? TFT_DARKGREY
+                   : (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
+  uint16_t text = (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
 
   tft.fillRoundRect(x, y, MCELL_W, MCELL_H, 6, TFT_BLACK);
   tft.drawRoundRect(x, y, MCELL_W, MCELL_H, 6, border);
-  if (selected) tft.drawRoundRect(x + 1, y + 1, MCELL_W - 2, MCELL_H - 2, 5, border);
+  if (look != CELL_PLAIN)
+    tft.drawRoundRect(x + 1, y + 1, MCELL_W - 2, MCELL_H - 2, 5, border);
 
   // Line 1 centered at size 2 (e.g. "12 words" = 96px in a 148px cell),
   // line 2 centered at size 1 below it.
   tft.setTextSize(2);
-  tft.setTextColor(selected ? TFT_GREEN : TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(text, TFT_BLACK);
   tft.setCursor(x + (MCELL_W - 12 * (int)strlen(line1)) / 2, y + 12);
   tft.print(line1);
   tft.setTextSize(1);
-  tft.setTextColor(selected ? TFT_GREEN : TFT_DARKGREY, TFT_BLACK);
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(x + (MCELL_W - 6 * (int)strlen(line2)) / 2, y + 42);
   tft.print(line2);
+}
+
+// v2.4.9 commit flashes: the momentary green lock-in that the roll grid
+// has had since v2.4.2, now on every two-tap cell surface. Touch boards
+// only (non-touch screens display their selection differently and commit
+// through the shown value, per their displayed-value contract); the
+// blocking delay matches the roll grid's flash exactly.
+static void flashMenuCellCommit() {
+  if (!dstouch::detected()) return;
+  drawMenuCell(menuChoice,
+               (menuChoice == 0) ? "12 words" : "24 words",
+               (menuChoice == 0) ? "(50 rolls)" : "(99 rolls)",
+               CELL_CONFIRM);
+  delay(250);
+}
+
+static void flashResetCellCommit() {
+  if (!dstouch::detected()) return;
+  drawMenuCell(resetChoice,
+               (resetChoice == 0) ? "Cancel" : "Wipe",
+               (resetChoice == 0) ? "keep rolling" : "back to menu",
+               CELL_CONFIRM);
+  delay(250);
 }
 
 static void drawMenuTouch() {
@@ -794,8 +876,10 @@ static void drawMenuTouch() {
   // Same rule as the roll grid: nothing is shown as selected until a real
   // choice has been made. Showing the internal default (12 words) as
   // pre-selected would claim a choice the user has not made.
-  drawMenuCell(0, "12 words", "(50 rolls)", !menuNeedsSelect && menuChoice == 0);
-  drawMenuCell(1, "24 words", "(99 rolls)", !menuNeedsSelect && menuChoice == 1);
+  drawMenuCell(0, "12 words", "(50 rolls)",
+               (!menuNeedsSelect && menuChoice == 0) ? CELL_SELECTED : CELL_PLAIN);
+  drawMenuCell(1, "24 words", "(99 rolls)",
+               (!menuNeedsSelect && menuChoice == 1) ? CELL_SELECTED : CELL_PLAIN);
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
@@ -867,8 +951,10 @@ static void drawResetConfirmTouch() {
   tft.setCursor(10, 8);
   tft.println("Leave rolling?");
 
-  drawMenuCell(0, "Cancel", "keep rolling", !resetNeedsSelect && resetChoice == 0);
-  drawMenuCell(1, "Wipe", "back to menu", !resetNeedsSelect && resetChoice == 1);
+  drawMenuCell(0, "Cancel", "keep rolling",
+               (!resetNeedsSelect && resetChoice == 0) ? CELL_SELECTED : CELL_PLAIN);
+  drawMenuCell(1, "Wipe", "back to menu",
+               (!resetNeedsSelect && resetChoice == 1) ? CELL_SELECTED : CELL_PLAIN);
 
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
@@ -999,12 +1085,21 @@ static void drawRollingTouch() {
     drawCell(face, (!touchNeedsSelect && face == currentFace) ? CELL_SELECTED
                                                               : CELL_PLAIN);
 
+  // Hint stack (v2.4.9): three size-1 lines on a 10px pitch starting at
+  // y=144 (the grid's second row ends at y=140; the last glyph's final
+  // pixel lands on row 169, the screen's last). The USB advisory leads,
+  // in yellow -- SeedSigner's caution tier -- because the moment it
+  // applies to is this one, and the README's advice has to be in-hand,
+  // not in a document read once at a desk.
   tft.setTextSize(1);
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setCursor(10, 144);
+  tft.println("USB cable disconnected? Roll on battery power.");
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.setCursor(10, 146);
+  tft.setCursor(10, 153);
   tft.println("Tap a number, then tap it again to confirm");
-  tft.setCursor(10, 156);
-  tft.println("Buttons still work.  < or BTN2 hold: back a roll");
+  tft.setCursor(10, 162);
+  tft.println("Buttons work; < or BTN2 hold: back a roll");
 }
 
 void drawRolling() {
@@ -1027,9 +1122,12 @@ void drawRolling() {
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 145);
-  tft.println("BTN1: change value   BTN2 tap: confirm");
+  tft.println("BTN1: change   BTN2: confirm (hold: back)");
+  // Yellow USB advisory (v2.4.9, issue #11): the README's physical-
+  // security instruction surfaced at the moment it applies.
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setCursor(10, 155);
-  tft.println("BTN2 hold: back to previous roll");
+  tft.println("USB cable disconnected? Roll on battery power.");
   drawButtonMarkers();
 }
 
@@ -1068,6 +1166,14 @@ static void drawPageNavCells() {
 
 void drawResult() {
   tft.fillScreen(TFT_BLACK);
+  // Dire border for the whole time words are on screen (v2.4.9, issue
+  // #11) -- SeedSigner's warning-edges convention on their SeedWords
+  // screen: the caution stays visible the entire duration the phrase is
+  // exposed, not just at the pre-display gate. Drawn immediately after
+  // the fill so later elements (the touch nav cells) paint over its
+  // corners cleanly.
+  tft.drawRect(0, 0, SCREEN_W, SCREEN_H, TFT_ORANGE);
+  tft.drawRect(2, 2, SCREEN_W - 4, SCREEN_H - 4, TFT_ORANGE);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(2);
   int perPage = 4;
@@ -1212,18 +1318,23 @@ static int verifyCellAtPoint(int x, int y) {
   return -1;
 }
 
-static void drawVerifyCell(int slot, bool selected) {
+// v2.4.9: same three-state conversion as drawMenuCell -- white when
+// armed, green only for the momentary confirm flash. print() streams
+// the sensitive word straight out -- no formatted copy, same discipline
+// as the word list in drawResult().
+static void drawVerifyCell(int slot, CellLook look) {
   int x, y;
   verifyCellOrigin(slot, x, y);
-  uint16_t border = selected ? TFT_GREEN : TFT_DARKGREY;
+  uint16_t border = (look == CELL_PLAIN) ? TFT_DARKGREY
+                   : (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
+  uint16_t text = (look == CELL_CONFIRM) ? TFT_GREEN : TFT_WHITE;
 
   tft.fillRoundRect(x, y, VCELL_W, VCELL_H, 6, TFT_BLACK);
   tft.drawRoundRect(x, y, VCELL_W, VCELL_H, 6, border);
-  if (selected) tft.drawRoundRect(x + 1, y + 1, VCELL_W - 2, VCELL_H - 2, 5, border);
-  // print() streams the sensitive word straight out -- no formatted copy,
-  // same discipline as the word list in drawResult().
+  if (look != CELL_PLAIN)
+    tft.drawRoundRect(x + 1, y + 1, VCELL_W - 2, VCELL_H - 2, 5, border);
   tft.setTextSize(3);  // 18x24 px glyph
-  tft.setTextColor(selected ? TFT_GREEN : TFT_WHITE, TFT_BLACK);
+  tft.setTextColor(text, TFT_BLACK);
   tft.setCursor(x + (VCELL_W - 18 * (int)strlen(verifyChoices[slot])) / 2, y + 3);
   tft.print(verifyChoices[slot]);
 }
@@ -1247,7 +1358,8 @@ static void drawVerifyPickingTouch() {
   tft.print(verifyWordNums[verifyStep]);
   tft.println(" was:");
   for (int s = 0; s < 3; s++)
-    drawVerifyCell(s, !verifyNeedsSelect && s == verifyChoiceIdx);
+    drawVerifyCell(s, (!verifyNeedsSelect && s == verifyChoiceIdx) ? CELL_SELECTED
+                                                                   : CELL_PLAIN);
   tft.setTextSize(1);
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
   tft.setCursor(10, 148);
@@ -1298,6 +1410,13 @@ void drawVerifyPicking() {
 
 void drawVerifyResult() {
   tft.fillScreen(TFT_BLACK);
+  // A wrong answer is a provably-wrong paper backup, not a quiz score
+  // (v2.4.9, issue #11): the failure screen carries the red border so
+  // "wrong" reads as stop, matching the wipe screen's red-fill grammar.
+  if (!verifyWasCorrect) {
+    tft.drawRect(0, 0, SCREEN_W, SCREEN_H, TFT_RED);
+    tft.drawRect(2, 2, SCREEN_W - 4, SCREEN_H - 4, TFT_RED);
+  }
   tft.setTextSize(2);
   tft.setCursor(10, 5);
   if (verifyWasCorrect) {
@@ -1385,6 +1504,15 @@ void drawVerifySummary() {
 // same code -- same single-source reasoning as confirmCurrentRoll (v2.2.0).
 // v2.4.4: also records misses for the end-of-quiz summary.
 void lockInVerifyChoice() {
+  // v2.4.9: touch boards get the green lock-in flash on the chosen cell
+  // before the right/wrong screen -- the same momentary confirm every
+  // two-tap surface gives. The non-touch quiz commits its single
+  // displayed word and has no cells, so it skips straight to the result,
+  // per its displayed-value contract.
+  if (dstouch::detected()) {
+    drawVerifyCell(verifyChoiceIdx, CELL_CONFIRM);
+    delay(250);
+  }
   verifyAnswered = true;
   verifyWasCorrect = (verifyChoiceIdx == verifyCorrectSlot);
   if (!verifyWasCorrect) verifyMisses[verifyMissCount++] = verifyWordNums[verifyStep];
@@ -1461,9 +1589,17 @@ static void drawEntropyBody() {
     y += 22;
   }
   tft.setTextSize(1);
-  tft.setTextColor(TFT_RED, TFT_BLACK);
-  tft.setCursor(10, 130);
-  tft.println("As sensitive as the mnemonic itself.");
+  // v2.4.9 (issue #11): the soft red line becomes SeedSigner's warning-
+  // screen grammar -- a yellow "Privacy Leak!" headline (their literal
+  // default) plus a plain directive. Yellow is the caution tier (act on
+  // it: don't photograph, don't type it online); red stays reserved for
+  // things that are already wrong.
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setCursor(10, 128);
+  tft.println("Privacy Leak: this IS your private key.");
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 138);
+  tft.println("Never photograph or type into an online device.");
 }
 
 // Touch variant (v2.4.5): the raw-entropy view is a FLOW STOP between the
@@ -1473,15 +1609,15 @@ static void drawEntropyBody() {
 // pages: < returns to the words (reversible, single-tap), > continues
 // into the quiz; BTN1 mirrors < and BTN2 mirrors >, per the
 // buttons-mirror-cells rule. Hex lines (16 chars x 12px) and the warning
-// text (36 chars x 6px = ~226px) never reach the x=264 nav column.
+// text never reach the x=264 nav column.
 static void drawEntropyTouch() {
   tft.fillScreen(TFT_BLACK);
   drawEntropyBody();
   drawPageNavCells();
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.setCursor(10, 142);
+  tft.setCursor(10, 148);
   tft.println("Paste into a BIP39 tool's Hex field.");
-  tft.setCursor(10, 155);
+  tft.setCursor(10, 158);
   tft.println("> or BTN2: verify   < or BTN1: back");
 }
 
@@ -1493,10 +1629,85 @@ void drawEntropy() {
   tft.fillScreen(TFT_BLACK);
   drawEntropyBody();
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.setCursor(10, 142);
+  tft.setCursor(10, 148);
   tft.println("Paste into a BIP39 tool's Hex field.");
-  tft.setCursor(10, 155);
+  tft.setCursor(10, 158);
   tft.println("BTN1 tap: back to words");
+  drawButtonMarkers();
+}
+
+// ---- Pre-display security gate (issue #11, v2.4.9) -------------------------
+// The one orange moment in the firmware. Modeled on SeedSigner's
+// DireWarningScreen, down to the wording: their pre-seed-words gate shows
+// the headline "Classified Info!", the body "You must keep your seed
+// words private & away from all online devices.", and an "I understand"
+// dismiss button. DiceSeed puts the headline in the standard title line
+// (hardware-walkthrough revision: no icon glyph), and gives Touch boards
+// a real hit-tested "I understand" button; non-touch keeps the bottom
+// BTN2 instruction. DiceSeed adds its own USB line because its
+// documented physical exposure (USB-Serial-JTAG enabled in silicon)
+// makes "no cable attached" the single most actionable precaution at
+// this exact moment. Shown ONCE per generation: SCR_WARN_GATE is the
+// only path from rolling to the result screen, and the result screen is
+// only ever entered through it -- no gateShown flag needed, the state
+// machine's shape is the flag. Dismiss (the button on touch, BTN2
+// everywhere) advances to SCR_RESULT; the both-button wipe hold works
+// here too, as on every sensitive screen.
+
+// The dismiss button (touch only): single-tap -- acknowledging is this
+// screen's only action and nothing is committed, so it follows the
+// nav-cell rule, not the two-tap commit rule. Misses are ignored, never
+// snapped, like every other hit test on a seed-entry device.
+static const int GATEBTN_W = 200, GATEBTN_H = 40;
+static const int GATEBTN_X = (SCREEN_W - GATEBTN_W) / 2;
+static const int GATEBTN_Y = 110;
+
+void drawWarnGate() {
+  tft.fillScreen(TFT_BLACK);
+
+  // Dire border, double-drawn like every lit border in this firmware.
+  tft.drawRect(0, 0, SCREEN_W, SCREEN_H, TFT_ORANGE);
+  tft.drawRect(2, 2, SCREEN_W - 4, SCREEN_H - 4, TFT_ORANGE);
+
+  // Headline in the standard header line -- same position and type size
+  // as every other screen's title, in the dire color.
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_ORANGE, TFT_BLACK);
+  tft.setCursor(10, 8);
+  tft.print("Classified Info!");
+
+  // Body (moved up with the glyph gone).
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(1);
+  tft.setCursor(10, 48);
+  tft.println("You must keep your seed words");
+  tft.setCursor(10, 60);
+  tft.println("private & away from all online");
+  tft.setCursor(10, 72);
+  tft.println("devices.");
+  tft.setCursor(10, 92);
+  tft.println("No USB cable should be attached.");
+
+  // Touch boards draw the dismiss button (SeedSigner's "I understand");
+  // non-touch keeps the BTN2 instruction at the bottom instead.
+  if (dstouch::detected()) {
+    tft.fillRoundRect(GATEBTN_X, GATEBTN_Y, GATEBTN_W, GATEBTN_H, 6, TFT_BLACK);
+    tft.drawRoundRect(GATEBTN_X, GATEBTN_Y, GATEBTN_W, GATEBTN_H, 6, TFT_DARKGREY);
+    tft.setTextSize(2);  // 12x16 px glyph; "I understand" = 144px in 200px
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(GATEBTN_X + (GATEBTN_W - 12 * (int)strlen("I understand")) / 2,
+                  GATEBTN_Y + (GATEBTN_H - 16) / 2);
+    tft.print("I understand");
+  } else {
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(10, 148);
+    tft.println("BTN2: I understand");
+  }
+
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  tft.setCursor(10, 158);
+  tft.println("Hold BOTH buttons 2s: WIPE + reset");
   drawButtonMarkers();
 }
 
@@ -1605,8 +1816,13 @@ void confirmCurrentRoll() {
     verifyMissCount = 0;   // v2.4.4: clean slate for the next session's quiz
     verifySummary = false;
     pickVerifyWords();
-    screen = SCR_RESULT;
-    drawResult();
+    // v2.4.9: the security gate comes between the last roll and the
+    // words -- once per generation by construction (this branch is the
+    // result screen's only entry point). Dismissing it lands here in
+    // SCR_RESULT; there is no way back into the gate from the result
+    // screen, matching SeedSigner's no-BACK-reentry rule.
+    screen = SCR_WARN_GATE;
+    drawWarnGate();
   } else {
     drawRolling();
   }
@@ -1657,6 +1873,7 @@ void loop() {
               menuNeedsSelect = false;
               drawMenu();
             } else {
+              flashMenuCellCommit();  // v2.4.9 green lock-in flash
               startRolling();
               drawRolling();
             }
@@ -1678,6 +1895,7 @@ void loop() {
         if (dstouch::detected() && menuNeedsSelect) {
           menuRefuseStart();
         } else {
+          flashMenuCellCommit();  // v2.4.9 green lock-in flash
           startRolling();
           drawRolling();
         }
@@ -1785,6 +2003,45 @@ void loop() {
         }
       }
       rollBtn2WasDown = b2;
+      break;
+    }
+
+    case SCR_WARN_GATE: {
+      // Dismissal (v2.4.9): "I understand" = the hit-tested button on a
+      // Touch board (single-tap -- acknowledging is this screen's only
+      // action and nothing is committed, so it follows the nav-cell rule,
+      // not the two-tap commit rule; misses ignored), or BTN2 short
+      // press everywhere. The both-button wipe hold works here too,
+      // reusing the result screen's edge-tracking vars: this screen
+      // leads into that one, so their input contracts are one.
+      if (dstouch::detected()) {
+        int tx, ty;
+        if (dstouch::tapped(tx, ty)) {
+          if (tx >= GATEBTN_X && tx < GATEBTN_X + GATEBTN_W &&
+              ty >= GATEBTN_Y && ty < GATEBTN_Y + GATEBTN_H) {
+            screen = SCR_RESULT;
+            drawResult();
+            break;
+          }
+        }
+      }
+      bool b1 = (digitalRead(PIN_BUTTON_1) == LOW);
+      bool b2 = (digitalRead(PIN_BUTTON_2) == LOW);
+      if (b1 && b2) {
+        bothUpSince = 0;
+        if (bothDownSince == 0) bothDownSince = millis();
+        if (millis() - bothDownSince >= 2000) wipeAndRestart();
+      } else if (bothDownSince != 0) {
+        if (bothUpSince == 0) bothUpSince = millis();
+        if (millis() - bothUpSince >= 150) {
+          bothDownSince = 0;
+          bothUpSince = 0;
+        }
+      }
+      if (button2Event() == 1) {
+        screen = SCR_RESULT;
+        drawResult();
+      }
       break;
     }
 
@@ -2006,9 +2263,11 @@ void loop() {
               resetNeedsSelect = false;
               drawResetConfirm();
             } else if (resetChoice == 0) {
-              screen = SCR_ROLLING;  // rolls untouched
+              flashResetCellCommit();  // v2.4.9 green lock-in flash
+              screen = SCR_ROLLING;    // rolls untouched
               drawRolling();
             } else {
+              flashResetCellCommit();  // v2.4.9 green lock-in flash
               wipeAndRestart();
             }
           }
@@ -2032,9 +2291,11 @@ void loop() {
           delay(800);
           drawResetConfirm();
         } else if (resetChoice == 0) {
-          screen = SCR_ROLLING;  // rolls untouched
+          flashResetCellCommit();  // v2.4.9 green lock-in flash
+          screen = SCR_ROLLING;    // rolls untouched
           drawRolling();
         } else {
+          flashResetCellCommit();  // v2.4.9 green lock-in flash
           wipeAndRestart();
         }
       }

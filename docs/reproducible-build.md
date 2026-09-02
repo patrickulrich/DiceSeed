@@ -15,8 +15,8 @@ is pinned; everything pinned lives in one place.
 |---|---|---|
 | Build container | `debian:bookworm-slim` | Image tag in the script |
 | `arduino-cli` | 1.5.1 | Direct tarball download, **SHA-256 verified in-script** |
-| ESP32 Arduino core | `esp32:esp32@3.3.11` | Versioned install (README's tested version) |
-| `TFT_eSPI` | 2.5.43 | Versioned install (README's tested version) |
+| ESP32 Arduino core | `esp32:esp32@3.3.11` | Versioned install (tested version — [building.md](building.md)) |
+| `TFT_eSPI` | 2.5.43 | Versioned install (tested version — [building.md](building.md)) |
 | Board | `esp32:esp32:lilygo_t_display_s3` | LilyGO's dedicated board entry (correct flash/partition map) |
 
 The pins are the single source of truth for local builds **and CI** — the
